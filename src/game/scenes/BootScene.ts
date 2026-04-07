@@ -10,12 +10,15 @@ export class BootScene extends Phaser.Scene {
 
   create(): void {
     const services = getGameServices(this)
+    const cohort =
+      this.sys.game.device.input.touch || this.scale.width <= 768 ? 'mobile_web' : 'desktop_web'
 
     services.performance.mark('boot:start')
     services.telemetry.track('boot_completed', {
       width: Math.round(this.scale.width),
       height: Math.round(this.scale.height),
       touch: this.sys.game.device.input.touch,
+      cohort,
     })
 
     this.scene.start(SCENE_KEYS.preload)

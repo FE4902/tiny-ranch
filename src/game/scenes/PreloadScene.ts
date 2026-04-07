@@ -1,6 +1,10 @@
 import Phaser from 'phaser'
 
-import badgeAssetUrl from '../../assets/placeholders/ranch-badge.svg'
+import badgeAssetUrl from '../../assets/placeholders/ranch-badge.svg?url'
+import {
+  preloadTinyRanchSpritesheets,
+  tinyRanchMvpSpritesheetCount,
+} from '../assets/tinyRanchAssets'
 import { SCENE_KEYS } from '../constants'
 import { getGameServices } from '../systems/runtime'
 
@@ -24,7 +28,8 @@ export class PreloadScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
 
-    this.load.svg('ranch-badge', badgeAssetUrl)
+    this.load.image('ranch-badge', badgeAssetUrl)
+    preloadTinyRanchSpritesheets(this, { mvpOnly: true })
 
     this.load.on('progress', (value: number) => {
       if (!this.progressBar) {
@@ -46,14 +51,18 @@ export class PreloadScene extends Phaser.Scene {
 
   create(): void {
     const services = getGameServices(this)
+    const startupScene = services.getPreferredStartupScene()
 
-    services.telemetry.track('preload_complete', { assets: 1 })
+    services.telemetry.track('preload_complete', {
+      assets: tinyRanchMvpSpritesheetCount + 1,
+      startupScene,
+    })
 
     if (!this.scene.isActive(SCENE_KEYS.ui)) {
       this.scene.launch(SCENE_KEYS.ui)
     }
 
-    services.navigate(SCENE_KEYS.ranch)
+    services.navigate(startupScene)
     this.scene.stop()
   }
 }

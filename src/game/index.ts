@@ -12,6 +12,7 @@ export function createGame(parent: string): Phaser.Game {
   const services = createGameServices(game, telemetry, performance)
 
   registerGameServices(game, services)
+  services.hydrateSavedGameStateOnBoot()
 
   return game
 }
