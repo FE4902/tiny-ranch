@@ -35,16 +35,91 @@ Lifecycle flush behavior:
 - Batches flush on interval/size thresholds during play.
 - Final delivery attempts happen on `visibilitychange` and `pagehide` using `sendBeacon` first, then `fetch(..., { keepalive: true })` fallback.
 
-Transport guardrails:
+## Schema Governance
 
-- payload key allowlist is enforced before enqueue
-- direct PII-style keys are dropped at transport boundary
-- `doNotTrack` short-circuits network delivery
+Schema registry lives in `src/game/systems/telemetry.ts` as `TELEMETRY_EVENT_SCHEMA`.
+
+- Only events defined in `TELEMETRY_EVENT_SCHEMA` are accepted for delivery.
+- Each event has an explicit payload-key allowlist.
+- Unknown keys are dropped before sink delivery.
+- Unknown events are dropped before sink delivery.
+- In development builds, dropped event/key violations log one warning per unique violation signature.
+
+Schema change policy:
+
+- Additive-first changes only for active analytics events.
+- If a breaking event shape change is needed, run dual-write migration first and explicitly review with governance owner.
+
+## Privacy Constraints
+
+Telemetry is anonymous-by-default:
+
+- `distinct_id` is generated from local anonymous install state (`tiny-ranch:telemetry:distinct-id`).
+- No direct PII fields are allowed through transport validation.
+- Browser `doNotTrack` disables PostHog network emission.
+
+Explicit disallowed payload fields (case-insensitive):
+
+- `address`
+- `birthdate`
+- `city`
+- `country`
+- `dob`
+- `email`
+- `first_name`
+- `firstname`
+- `full_name`
+- `fullname`
+- `ip`
+- `ip_address`
+- `last_name`
+- `lastname`
+- `name`
+- `password`
+- `phone`
+- `postal_code`
+- `postcode`
+- `social_security_number`
+- `ssn`
+- `state`
+- `street`
+- `tax_id`
+- `user_email`
+- `username`
 
 ## Cohort Rule
 
 - `mobile_web` when touch is enabled or viewport width is <= `768`
 - `desktop_web` otherwise
+
+## Owner Model
+
+- Delivery owner: [Web Game Engineer](/VER/agents/web-game-engineer)
+  - maintains transport adapters, schema coverage for emitted events, and rollout execution
+- Governance owner: [CTO](/VER/agents/cto)
+  - approves schema changes, privacy constraints, and rollout/rollback gates
+
+Weekly responsibilities:
+
+- Delivery owner verifies event emission health in staging and reports regressions.
+- Governance owner reviews startup KPI trend deltas and approves any schema modifications.
+
+## Retention and Deletion Runbook
+
+Retention targets:
+
+- Raw event horizon: 180 days
+- Aggregate KPI horizon: 24 months
+
+Operational process:
+
+1. Weekly: verify retention settings in PostHog project configuration still match targets.
+2. Monthly: audit event volume for deprecated keys/events and queue cleanup work if needed.
+3. Deletion request handling:
+   - identify anonymous install id (`distinct_id`) from support/debug context
+   - delete matching user/event stream in PostHog
+   - record request date, requestor, and completion timestamp in ops notes
+4. After major schema rollout, confirm no stale dual-write fields remain past migration window.
 
 ## Staging Validation
 
@@ -59,6 +134,16 @@ window.addEventListener('tiny-ranch:telemetry', (event) => console.log(event.det
    - `boot_completed`
    - `startup_first_playable`
    - `scene_first_frame`
+
+## Rollout Checklist
+
+1. Validate `npm run build` passes with current telemetry schema changes.
+2. Verify local console sink still emits startup baseline events with no gameplay regressions.
+3. Deploy to staging with `VITE_TELEMETRY_SINK=posthog`.
+4. Confirm PostHog receives startup baseline events and no unknown-key warnings appear for expected payloads.
+5. Confirm `doNotTrack` behavior by setting browser DNT and verifying no PostHog network sends.
+6. Confirm fallback path by backgrounding/closing tab and verifying final batch attempts via `sendBeacon`/`keepalive`.
+7. Announce rollout in the active implementation issue and link this document for metric definitions.
 
 ## Weekly Reporting Surface
 

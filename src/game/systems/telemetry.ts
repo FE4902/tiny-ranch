@@ -18,8 +18,241 @@ export interface TelemetryRuntimeConfig {
   posthogMaxQueueSize: number
 }
 
+const SAVE_LIFECYCLE_PAYLOAD_KEYS = ['schemaVersion', 'saveAgeBucket'] as const
+const FIRST_SESSION_PAYLOAD_KEYS = [
+  'milestone',
+  'sessionId',
+  'sessionStartedAtMs',
+  'eventTimestampMs',
+  'elapsedSessionMs',
+  'eventIndex',
+  'cohort',
+  'startupScene',
+  'startupOutcome',
+  'scene',
+  'source',
+  'tileX',
+  'tileY',
+  'itemId',
+  'quantity',
+  'inventoryTotal',
+  'revenue',
+  'balance',
+] as const
+
+export const TELEMETRY_EVENT_SCHEMA = {
+  animal_fed: [
+    'animalType',
+    'animalLabel',
+    'productItemId',
+    'tileX',
+    'tileY',
+    'inputSource',
+    'eventTimestampMs',
+  ],
+  animal_product_collected: [
+    'animalType',
+    'animalLabel',
+    'productItemId',
+    'tileX',
+    'tileY',
+    'inputSource',
+    'quantity',
+    'inventoryTotal',
+    'eventTimestampMs',
+  ],
+  animal_product_ready: [
+    'animalType',
+    'animalLabel',
+    'productItemId',
+    'tileX',
+    'tileY',
+    'source',
+    'isFed',
+    'eventTimestampMs',
+  ],
+  animal_slot_activated: [
+    'animalType',
+    'animalLabel',
+    'productItemId',
+    'tileX',
+    'tileY',
+    'inputSource',
+    'productionDurationMs',
+    'fedProductionDurationMs',
+    'eventTimestampMs',
+  ],
+  boot_completed: ['width', 'height', 'touch', 'cohort'],
+  crop_harvested: [
+    'cropType',
+    'seedId',
+    'tileX',
+    'tileY',
+    'inputSource',
+    'quantity',
+    'inventoryTotal',
+    'eventTimestampMs',
+  ],
+  crop_plant_attempt: [
+    'result',
+    'inputSource',
+    'seedId',
+    'yieldItemId',
+    'stageDurationsMs',
+    'cropGrowthDurationMultiplier',
+    'tileX',
+    'tileY',
+  ],
+  crop_stage_advanced: [
+    'cropType',
+    'seedId',
+    'tileX',
+    'tileY',
+    'fromStage',
+    'toStage',
+    'isMature',
+    'eventTimestampMs',
+  ],
+  currency_changed: ['amount', 'balance', 'reason', 'eventTimestampMs'],
+  expansion_interaction: [
+    'inputSource',
+    'interactableId',
+    'sourceContext',
+    'result',
+    'tierBefore',
+    'tierAfter',
+    'nextCost',
+    'balance',
+    'eventTimestampMs',
+  ],
+  expansion_purchase_attempt: [
+    'source',
+    'result',
+    'tierBefore',
+    'tierAfter',
+    'cost',
+    'balance',
+    'eventTimestampMs',
+  ],
+  expansion_purchased: [
+    'source',
+    'tierBefore',
+    'tierAfter',
+    'cost',
+    'balance',
+    'cropTileCapacity',
+    'animalSlotCapacity',
+    'unlockedZoneCount',
+    'unlockedZoneIds',
+    'eventTimestampMs',
+  ],
+  first_session_end: FIRST_SESSION_PAYLOAD_KEYS,
+  first_session_harvest: FIRST_SESSION_PAYLOAD_KEYS,
+  first_session_launch: FIRST_SESSION_PAYLOAD_KEYS,
+  first_session_move: FIRST_SESSION_PAYLOAD_KEYS,
+  first_session_plant: FIRST_SESSION_PAYLOAD_KEYS,
+  first_session_sale: FIRST_SESSION_PAYLOAD_KEYS,
+  ftue_step_progressed: [
+    'completedStepId',
+    'completedSignal',
+    'nextStepId',
+    'isCompleted',
+    'eventTimestampMs',
+  ],
+  inventory_sold: [
+    'result',
+    'sellPointId',
+    'inputSource',
+    'soldLineItems',
+    'soldQuantity',
+    'totalRevenue',
+    'balance',
+    'sellPriceMultiplier',
+    'eventTimestampMs',
+  ],
+  offline_progress_granted: [
+    'offlineElapsedMs',
+    'effectiveElapsedMs',
+    'wasOfflineTimeCapped',
+    'wasRewardCapReached',
+    'totalItemsGranted',
+    'totalEstimatedSellValue',
+    'cropsHarvested',
+    'animalProductsCollected',
+    'rewardBreakdown',
+    'eventTimestampMs',
+  ],
+  offline_progress_summary_claimed: [
+    'source',
+    'offlineElapsedMs',
+    'effectiveElapsedMs',
+    'totalItemsGranted',
+    'totalEstimatedSellValue',
+    'cropsHarvested',
+    'animalProductsCollected',
+    'rewardBreakdown',
+    'eventTimestampMs',
+  ],
+  player_spawned: ['scene', 'tileX', 'tileY'],
+  preload_complete: ['assets', 'startupScene'],
+  ranch_interaction: ['targetId', 'targetLabel', 'targetType'],
+  ranch_map_ready: ['widthTiles', 'heightTiles', 'zones', 'collisions', 'landmarks', 'spawnTile'],
+  ranch_state_hydrated: ['restoredCrops', 'restoredAnimals', 'activeSeedId'],
+  return_session_started: [
+    'startupOutcome',
+    'startupScene',
+    'hadSavedState',
+    'offlineElapsedMs',
+    'effectiveElapsedMs',
+    'totalItemsGranted',
+    'totalEstimatedSellValue',
+    'rewardsGranted',
+  ],
+  save_load_failure: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  save_load_success: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  save_reset_action: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  save_reset_failed: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  save_write_failure: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  save_write_success: SAVE_LIFECYCLE_PAYLOAD_KEYS,
+  scene_changed: ['from', 'to'],
+  scene_first_frame: ['scene', 'durationMs'],
+  scene_loaded: ['scene'],
+  seed_planted: ['cropType', 'seedId', 'tileX', 'tileY', 'inputSource', 'eventTimestampMs'],
+  startup_first_playable: [
+    'scene',
+    'bootToFirstPlayableMs',
+    'cohort',
+    'viewportWidth',
+    'viewportHeight',
+  ],
+  upgrade_purchase_attempt: [
+    'upgradeId',
+    'inputSource',
+    'result',
+    'levelBefore',
+    'levelAfter',
+    'nextCost',
+    'balance',
+    'eventTimestampMs',
+  ],
+  upgrade_purchased: [
+    'upgradeId',
+    'source',
+    'levelBefore',
+    'levelAfter',
+    'cost',
+    'balance',
+    'cropGrowthDurationMultiplier',
+    'sellPriceMultiplier',
+    'eventTimestampMs',
+  ],
+  upgrade_viewed: ['scene', 'panel', 'upgradeCount', 'balance', 'eventTimestampMs'],
+} as const satisfies Record<string, readonly string[]>
+
+export type TelemetryEventName = keyof typeof TELEMETRY_EVENT_SCHEMA
+
 interface TelemetryEvent {
-  name: string
+  name: TelemetryEventName
   payload: TelemetryPayload
   timestamp: string
 }
@@ -36,7 +269,7 @@ interface TelemetryTransport {
 }
 
 interface PostHogCaptureEvent {
-  event: string
+  event: TelemetryEventName
   properties: Record<string, TelemetryScalar | string>
   timestamp: string
 }
@@ -45,123 +278,54 @@ const TELEMETRY_WINDOW_EVENT = 'tiny-ranch:telemetry'
 const DISTINCT_ID_STORAGE_KEY = 'tiny-ranch:telemetry:distinct-id'
 const MAX_EVENT_NAME_LENGTH = 120
 
-const ALLOWED_PAYLOAD_KEYS = new Set<string>([
-  'activeSeedId',
-  'amount',
-  'animalLabel',
-  'animalProductsCollected',
-  'animalSlotCapacity',
-  'animalType',
-  'assets',
-  'balance',
-  'bootToFirstPlayableMs',
-  'cohort',
-  'collisions',
-  'completedSignal',
-  'completedStepId',
-  'cost',
-  'cropGrowthDurationMultiplier',
-  'cropTileCapacity',
-  'cropType',
-  'cropsHarvested',
-  'durationMs',
-  'effectiveElapsedMs',
-  'elapsedSessionMs',
-  'eventIndex',
-  'eventTimestampMs',
-  'fedProductionDurationMs',
-  'from',
-  'fromStage',
-  'hadSavedState',
-  'height',
-  'heightTiles',
-  'inputSource',
-  'interactableId',
-  'inventoryTotal',
-  'isCompleted',
-  'isFed',
-  'isMature',
-  'itemId',
-  'landmarks',
-  'levelAfter',
-  'levelBefore',
-  'milestone',
-  'nextCost',
-  'nextStepId',
-  'offlineElapsedMs',
-  'panel',
-  'productionDurationMs',
-  'productItemId',
-  'quantity',
-  'reason',
-  'result',
-  'restoredAnimals',
-  'restoredCrops',
-  'revenue',
-  'rewardBreakdown',
-  'rewardsGranted',
-  'saveAgeBucket',
-  'scene',
-  'schemaVersion',
-  'seedId',
-  'sellPointId',
-  'sellPriceMultiplier',
-  'sessionId',
-  'sessionStartedAtMs',
-  'soldLineItems',
-  'soldQuantity',
-  'source',
-  'sourceContext',
-  'spawnTile',
-  'stageDurationsMs',
-  'startupOutcome',
-  'startupScene',
-  'targetId',
-  'targetLabel',
-  'targetType',
-  'tierAfter',
-  'tierBefore',
-  'tileX',
-  'tileY',
-  'to',
-  'toStage',
-  'totalEstimatedSellValue',
-  'totalItemsGranted',
-  'totalRevenue',
-  'touch',
-  'unlockedZoneCount',
-  'unlockedZoneIds',
-  'upgradeCount',
-  'upgradeId',
-  'viewportHeight',
-  'viewportWidth',
-  'wasOfflineTimeCapped',
-  'wasRewardCapReached',
-  'width',
-  'widthTiles',
-  'yieldItemId',
-  'zones',
-])
+const TELEMETRY_EVENT_PAYLOAD_KEY_SETS = (
+  Object.keys(TELEMETRY_EVENT_SCHEMA) as TelemetryEventName[]
+).reduce(
+  (eventMap, eventName) => {
+    eventMap[eventName] = new Set<string>(TELEMETRY_EVENT_SCHEMA[eventName])
+    return eventMap
+  },
+  {} as Record<TelemetryEventName, ReadonlySet<string>>,
+)
 
-const BLOCKED_PII_KEYS = new Set<string>([
+const DISALLOWED_PII_PAYLOAD_KEYS = new Set<string>([
   'address',
+  'birthdate',
   'city',
   'country',
+  'dob',
   'email',
   'first_name',
+  'firstname',
   'full_name',
+  'fullname',
   'ip',
   'ip_address',
   'last_name',
+  'lastname',
   'name',
   'password',
   'phone',
   'postal_code',
+  'postcode',
+  'social_security_number',
+  'ssn',
   'state',
   'street',
+  'tax_id',
   'user_email',
   'username',
 ])
+
+const SHOULD_WARN_TELEMETRY_VALIDATION = import.meta.env.DEV
+const EMITTED_TELEMETRY_VALIDATION_WARNINGS = new Set<string>()
+
+interface SanitizedPayloadResult {
+  payload: TelemetryPayload
+  unknownKeys: string[]
+  blockedPiiKeys: string[]
+  invalidValueKeys: string[]
+}
 
 function isTelemetryScalar(value: unknown): value is TelemetryScalar {
   return (
@@ -181,26 +345,60 @@ function normalizeEventName(name: string): string | null {
   return normalized.slice(0, MAX_EVENT_NAME_LENGTH)
 }
 
-function sanitizePayload(payload: TelemetryPayload): TelemetryPayload {
+function isKnownTelemetryEventName(name: string): name is TelemetryEventName {
+  return Object.prototype.hasOwnProperty.call(TELEMETRY_EVENT_SCHEMA, name)
+}
+
+function warnTelemetryValidationOnce(key: string, message: string): void {
+  if (!SHOULD_WARN_TELEMETRY_VALIDATION || EMITTED_TELEMETRY_VALIDATION_WARNINGS.has(key)) {
+    return
+  }
+
+  EMITTED_TELEMETRY_VALIDATION_WARNINGS.add(key)
+  console.warn(`[tiny-ranch] ${message}`)
+}
+
+function warnDroppedPayloadKeys(eventName: TelemetryEventName, reason: string, keys: string[]): void {
+  for (const key of keys) {
+    warnTelemetryValidationOnce(
+      `${reason}:${eventName}:${key}`,
+      `Telemetry dropped "${eventName}.${key}" (${reason}).`,
+    )
+  }
+}
+
+function sanitizePayload(eventName: TelemetryEventName, payload: TelemetryPayload): SanitizedPayloadResult {
+  const allowedPayloadKeys = TELEMETRY_EVENT_PAYLOAD_KEY_SETS[eventName]
   const sanitized: TelemetryPayload = {}
+  const unknownKeys: string[] = []
+  const blockedPiiKeys: string[] = []
+  const invalidValueKeys: string[] = []
 
   for (const [key, value] of Object.entries(payload)) {
-    if (!ALLOWED_PAYLOAD_KEYS.has(key)) {
+    if (!allowedPayloadKeys.has(key)) {
+      unknownKeys.push(key)
       continue
     }
 
-    if (BLOCKED_PII_KEYS.has(key.toLowerCase())) {
+    if (DISALLOWED_PII_PAYLOAD_KEYS.has(key.toLowerCase())) {
+      blockedPiiKeys.push(key)
       continue
     }
 
     if (!isTelemetryScalar(value)) {
+      invalidValueKeys.push(key)
       continue
     }
 
     sanitized[key] = value
   }
 
-  return sanitized
+  return {
+    payload: sanitized,
+    unknownKeys,
+    blockedPiiKeys,
+    invalidValueKeys,
+  }
 }
 
 function createTelemetryEvent(name: string, payload: TelemetryPayload): TelemetryEvent | null {
@@ -209,9 +407,22 @@ function createTelemetryEvent(name: string, payload: TelemetryPayload): Telemetr
     return null
   }
 
+  if (!isKnownTelemetryEventName(normalizedName)) {
+    warnTelemetryValidationOnce(
+      `unknown_event:${normalizedName}`,
+      `Telemetry dropped unregistered event "${normalizedName}". Add it to TELEMETRY_EVENT_SCHEMA before emitting.`,
+    )
+    return null
+  }
+
+  const sanitizedPayload = sanitizePayload(normalizedName, payload)
+  warnDroppedPayloadKeys(normalizedName, 'unknown_payload_key', sanitizedPayload.unknownKeys)
+  warnDroppedPayloadKeys(normalizedName, 'disallowed_pii_key', sanitizedPayload.blockedPiiKeys)
+  warnDroppedPayloadKeys(normalizedName, 'invalid_scalar_value', sanitizedPayload.invalidValueKeys)
+
   return {
     name: normalizedName,
-    payload: sanitizePayload(payload),
+    payload: sanitizedPayload.payload,
     timestamp: new Date().toISOString(),
   }
 }
