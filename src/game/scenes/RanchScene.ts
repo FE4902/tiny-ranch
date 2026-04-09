@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 import { getAnimalProductionConfig, type AnimalProductionId } from '../config/animals'
 import { defaultCropSeedId, getCropSeedConfig, type CropSeedId } from '../config/crops'
 import { getItemSellPrice } from '../config/economy'
+import { getExpansionTierConfig } from '../config/expansion'
 import {
   ftueConfig,
   getFtueStepConfig,
@@ -27,7 +28,12 @@ import {
   type RanchZone,
   type TileRect,
 } from '../maps/ranchMap'
-import { getGameServices, type FtueStateSnapshot, type RanchStateSnapshot } from '../systems/runtime'
+import {
+  getGameServices,
+  type ExpansionStateSnapshot,
+  type FtueStateSnapshot,
+  type RanchStateSnapshot,
+} from '../systems/runtime'
 
 const HUD_SAFE_TOP = 72
 const SCENE_PADDING = 12
@@ -39,8 +45,10 @@ const CROP_ZONE_INTERACTABLE_ID = 'zone:crop_area'
 const ANIMAL_PEN_INTERACTABLE_ID = 'zone:animal_pen'
 const SHIPPING_CRATE_ZONE_INTERACTABLE_ID = 'zone:shipping_crate'
 const MARKET_STALL_ZONE_INTERACTABLE_ID = 'zone:market_stall'
+const UTILITY_WELL_ZONE_INTERACTABLE_ID = 'zone:utility_well'
 const SHIPPING_CRATE_LANDMARK_INTERACTABLE_ID = 'landmark:shipping-crate'
 const MARKET_STALL_LANDMARK_INTERACTABLE_ID = 'landmark:market-stall'
+const UTILITY_WELL_LANDMARK_INTERACTABLE_ID = 'landmark:utility-well'
 const FEEDBACK_COLOR_DEFAULT = '#f6bf5f'
 const FEEDBACK_COLOR_SUCCESS = '#8dd6a0'
 const FEEDBACK_COLOR_ERROR = '#ff9f7a'
@@ -60,7 +68,15 @@ type PlantInputSource = 'keyboard' | 'pointer'
 type AnimalInputSource = 'keyboard' | 'pointer'
 type SellInputSource = 'keyboard' | 'pointer'
 type UpgradeInputSource = 'keyboard' | 'pointer'
-type PlantingValidationResult = 'ok' | 'invalid_zone' | 'occupied' | 'blocked' | 'out_of_bounds'
+type ExpansionInputSource = 'keyboard' | 'pointer'
+type PlantingValidationResult =
+  | 'ok'
+  | 'invalid_zone'
+  | 'zone_locked'
+  | 'capacity_locked'
+  | 'occupied'
+  | 'blocked'
+  | 'out_of_bounds'
 
 interface RanchInteractable {
   id: string
@@ -142,8 +158,10 @@ export class RanchScene extends Phaser.Scene {
   private readonly interactables: RanchInteractable[] = []
   private unsubscribeInventoryChanges?: () => void
   private unsubscribeCurrencyChanges?: () => void
+  private unsubscribeExpansionChanges?: () => void
   private unsubscribeUpgradeChanges?: () => void
   private unsubscribeFtueStateChanges?: () => void
+  private expansionState: ExpansionStateSnapshot | null = null
   private activeInteractable: RanchInteractable | null = null
   private playerFacing: FacingDirection = 'down'
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
@@ -190,6 +208,7 @@ export class RanchScene extends Phaser.Scene {
   create(): void {
     const services = getGameServices(this)
     this.inputPrefersTouch = this.isTouchInputPreferred()
+    this.expansionState = services.getExpansionStateSnapshot()
 
     this.backdrop = this.add.graphics()
     this.mapRoot = this.add.container(0, 0)
@@ -229,6 +248,7 @@ export class RanchScene extends Phaser.Scene {
     this.refreshUpgradeUi()
     this.trackUpgradePanelViewed()
     this.refreshFtueObjectiveUi()
+    this.refreshExpansionGatedVisuals()
     this.updateInteractionState(ranchMapContract)
     this.syncRanchStateSnapshot()
     services.telemetry.track('ranch_state_hydrated', {
@@ -242,6 +262,11 @@ export class RanchScene extends Phaser.Scene {
     this.unsubscribeCurrencyChanges = services.onCurrencyChanged(() => {
       this.refreshCurrencyUi()
       this.refreshUpgradeUi()
+    })
+    this.unsubscribeExpansionChanges = services.onExpansionStateChanged((snapshot) => {
+      this.expansionState = snapshot
+      this.refreshExpansionGatedVisuals()
+      this.updateInteractionState(ranchMapContract)
     })
     this.unsubscribeUpgradeChanges = services.onUpgradeStateChanged(() => {
       this.refreshUpgradeUi()
@@ -282,6 +307,8 @@ export class RanchScene extends Phaser.Scene {
       this.unsubscribeInventoryChanges = undefined
       this.unsubscribeCurrencyChanges?.()
       this.unsubscribeCurrencyChanges = undefined
+      this.unsubscribeExpansionChanges?.()
+      this.unsubscribeExpansionChanges = undefined
       this.unsubscribeUpgradeChanges?.()
       this.unsubscribeUpgradeChanges = undefined
       this.unsubscribeFtueStateChanges?.()
@@ -306,6 +333,7 @@ export class RanchScene extends Phaser.Scene {
       this.upgradePanelTitle = undefined
       this.upgradePanelHeight = 0
       this.hasTrackedUpgradePanelView = false
+      this.expansionState = null
       this.cropLayer = undefined
     })
   }
@@ -586,8 +614,16 @@ export class RanchScene extends Phaser.Scene {
       return false
     }
 
+    if (!this.isZoneUnlocked('crop_area')) {
+      return false
+    }
+
     const tileKey = this.createTileKey(cropState.tileX, cropState.tileY)
     if (this.collisionTiles.has(tileKey) || this.plantedCrops.has(tileKey)) {
+      return false
+    }
+
+    if (this.plantedCrops.size >= this.getExpansionStateSnapshot().unlocks.cropTileCapacity) {
       return false
     }
 
@@ -715,18 +751,39 @@ export class RanchScene extends Phaser.Scene {
       return
     }
 
+    const utilityWellZone = ranchMapContract.zones.find((zone) => zone.id === 'utility_well')
+    if (utilityWellZone && this.isTileWithinRect(tile.x, tile.y, utilityWellZone)) {
+      this.tryPurchaseExpansion('pointer', UTILITY_WELL_ZONE_INTERACTABLE_ID)
+      return
+    }
+
     if (this.animalZone && this.isTileWithinRect(tile.x, tile.y, this.animalZone)) {
+      if (!this.isZoneUnlocked('animal_pen')) {
+        this.showInteractionFeedback(this.getLockedZonePrompt('animal_pen'), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       this.tryAnimalActionAtTile(tile.x, tile.y, ranchMapContract, 'pointer')
       return
     }
 
     if (this.cropZone && this.isTileWithinRect(tile.x, tile.y, this.cropZone)) {
+      if (!this.isZoneUnlocked('crop_area')) {
+        this.showInteractionFeedback(this.getLockedZonePrompt('crop_area'), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       this.tryCropActionAtTile(tile.x, tile.y, ranchMapContract, 'pointer')
       return
     }
 
     const economyZone = this.resolveEconomyZoneAtTile(tile.x, tile.y, ranchMapContract)
     if (economyZone) {
+      if (!this.isZoneUnlocked(economyZone.id)) {
+        this.showInteractionFeedback(this.getLockedZonePrompt(economyZone.id), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       this.trySellInventory(this.resolveSellPointId(`zone:${economyZone.id}`), 'pointer')
     }
   }
@@ -769,6 +826,106 @@ export class RanchScene extends Phaser.Scene {
         (zone) => zone.purpose === 'economy' && this.isTileWithinRect(tileX, tileY, zone),
       ) ?? null
     )
+  }
+
+  private getExpansionStateSnapshot(): ExpansionStateSnapshot {
+    if (this.expansionState) {
+      return this.expansionState
+    }
+
+    const snapshot = getGameServices(this).getExpansionStateSnapshot()
+    this.expansionState = snapshot
+    return snapshot
+  }
+
+  private refreshExpansionGatedVisuals(): void {
+    this.animalSlots.forEach((slot) => {
+      this.updateAnimalSlotVisual(slot)
+    })
+  }
+
+  private isZoneUnlocked(zoneId: RanchZone['id']): boolean {
+    return this.getExpansionStateSnapshot().unlocks.unlockedZoneIds.includes(zoneId)
+  }
+
+  private getZoneIdForInteractable(interactableId: string): RanchZone['id'] | null {
+    if (interactableId === SHIPPING_CRATE_LANDMARK_INTERACTABLE_ID) {
+      return 'shipping_crate'
+    }
+    if (interactableId === MARKET_STALL_LANDMARK_INTERACTABLE_ID) {
+      return 'market_stall'
+    }
+    if (interactableId === UTILITY_WELL_LANDMARK_INTERACTABLE_ID) {
+      return 'utility_well'
+    }
+    if (!interactableId.startsWith('zone:')) {
+      return null
+    }
+
+    const zoneId = interactableId.slice('zone:'.length) as RanchZone['id']
+    return ranchMapContract.zones.some((zone) => zone.id === zoneId) ? zoneId : null
+  }
+
+  private isExpansionPurchaseInteractableId(interactableId: string): boolean {
+    return (
+      interactableId === UTILITY_WELL_ZONE_INTERACTABLE_ID ||
+      interactableId === UTILITY_WELL_LANDMARK_INTERACTABLE_ID
+    )
+  }
+
+  private isInteractableLockedByExpansion(interactableId: string): boolean {
+    if (this.isExpansionPurchaseInteractableId(interactableId)) {
+      return false
+    }
+
+    const zoneId = this.getZoneIdForInteractable(interactableId)
+    return zoneId ? !this.isZoneUnlocked(zoneId) : false
+  }
+
+  private getLockedZonePrompt(zoneId: RanchZone['id']): string {
+    const expansionState = this.getExpansionStateSnapshot()
+    const unlocksOnNextTier = expansionState.nextUnlocks?.unlockedZoneIds.includes(zoneId) ?? false
+    if (unlocksOnNextTier && expansionState.nextTier !== null && expansionState.nextCost !== null) {
+      if (this.inputPrefersTouch) {
+        return `Locked. Tap Utility Well to buy Tier ${expansionState.nextTier} (${expansionState.nextCost} coins).`
+      }
+
+      return `Locked. Press E/Space at Utility Well for Tier ${expansionState.nextTier} (${expansionState.nextCost} coins).`
+    }
+
+    return 'Locked by ranch expansion progression.'
+  }
+
+  private getOrderedAnimalSlots(): AnimalProductionSlot[] {
+    return [...this.animalSlots.values()].sort((left, right) => {
+      const yDiff = left.tileY - right.tileY
+      if (yDiff !== 0) {
+        return yDiff
+      }
+
+      const xDiff = left.tileX - right.tileX
+      if (xDiff !== 0) {
+        return xDiff
+      }
+
+      return left.id.localeCompare(right.id)
+    })
+  }
+
+  private isAnimalSlotUnlockedByExpansion(slot: AnimalProductionSlot): boolean {
+    if (!this.isZoneUnlocked('animal_pen')) {
+      return false
+    }
+
+    const slotCapacity = this.getExpansionStateSnapshot().unlocks.animalSlotCapacity
+    const orderedSlots = this.getOrderedAnimalSlots()
+    const slotIndex = orderedSlots.findIndex((candidate) => candidate.id === slot.id)
+    return slotIndex >= 0 && slotIndex < slotCapacity
+  }
+
+  private getUnlockedAnimalSlotCount(): number {
+    const slotCapacity = this.getExpansionStateSnapshot().unlocks.animalSlotCapacity
+    return Math.min(this.animalSlots.size, Math.max(0, slotCapacity))
   }
 
   private createTileKey(tileX: number, tileY: number): string {
@@ -1259,8 +1416,22 @@ export class RanchScene extends Phaser.Scene {
   }
 
   private getInteractionPrompt(target: RanchInteractable): string {
+    if (this.isExpansionPurchaseInteractableId(target.id)) {
+      return this.getExpansionPurchasePrompt()
+    }
+
+    const zoneId = this.getZoneIdForInteractable(target.id)
+    if (zoneId && !this.isZoneUnlocked(zoneId)) {
+      return this.getLockedZonePrompt(zoneId)
+    }
+
     if (target.id === CROP_ZONE_INTERACTABLE_ID) {
       const seedConfig = getCropSeedConfig(this.activeSeedId)
+      const cropCapacity = this.getExpansionStateSnapshot().unlocks.cropTileCapacity
+      if (this.plantedCrops.size >= cropCapacity) {
+        return `Crop capacity reached (${cropCapacity}/${cropCapacity}). Expand ranch to plant more.`
+      }
+
       if (this.inputPrefersTouch) {
         return `Tap soil to plant ${seedConfig.label} or harvest mature crops`
       }
@@ -1269,11 +1440,13 @@ export class RanchScene extends Phaser.Scene {
     }
 
     if (target.id === ANIMAL_PEN_INTERACTABLE_ID) {
+      const unlockedSlots = this.getUnlockedAnimalSlotCount()
+      const slotSummary = `(${unlockedSlots}/${this.animalSlots.size} slots unlocked)`
       if (this.inputPrefersTouch) {
-        return 'Tap animals to activate, feed, or collect products'
+        return `Tap animals to activate, feed, or collect products ${slotSummary}`
       }
 
-      return 'Press E/Space near pen to activate, feed, or collect products'
+      return `Press E/Space near pen to activate, feed, or collect products ${slotSummary}`
     }
 
     if (this.isSellInteractableId(target.id)) {
@@ -1289,6 +1462,27 @@ export class RanchScene extends Phaser.Scene {
     }
 
     return `Press E/Space: ${target.label}`
+  }
+
+  private getExpansionPurchasePrompt(): string {
+    const services = getGameServices(this)
+    const expansionState = this.getExpansionStateSnapshot()
+    if (expansionState.nextTier === null || expansionState.nextCost === null) {
+      return 'Utility Well: all ranch expansion tiers unlocked.'
+    }
+
+    const nextTierConfig = getExpansionTierConfig(expansionState.nextTier)
+    const tierLabel = nextTierConfig?.label ?? `Tier ${expansionState.nextTier}`
+    const balance = services.getCurrencyBalance()
+    const affordability = balance >= expansionState.nextCost
+      ? 'ready'
+      : `need ${expansionState.nextCost - balance}`
+
+    if (this.inputPrefersTouch) {
+      return `Tap Utility Well to unlock ${tierLabel} (${expansionState.nextCost} coins, ${affordability}).`
+    }
+
+    return `Press E/Space at Utility Well for ${tierLabel} (${expansionState.nextCost} coins, ${affordability}).`
   }
 
   private isSellInteractableId(interactableId: string): boolean {
@@ -1409,10 +1603,23 @@ export class RanchScene extends Phaser.Scene {
       return false
     }
 
+    if (!this.isZoneUnlocked('animal_pen')) {
+      this.showInteractionFeedback(this.getLockedZonePrompt('animal_pen'), FEEDBACK_COLOR_ERROR)
+      return false
+    }
+
     this.syncAnimalProductionFromClock()
     const slot = this.resolveAnimalActionSlot(tileX, tileY, contract, inputSource)
     if (!slot) {
       this.showInteractionFeedback('No animal slot nearby.', FEEDBACK_COLOR_ERROR)
+      return false
+    }
+
+    if (!this.isAnimalSlotUnlockedByExpansion(slot)) {
+      this.showInteractionFeedback(
+        'That animal slot is locked. Buy the next expansion tier at the Utility Well.',
+        FEEDBACK_COLOR_ERROR,
+      )
       return false
     }
 
@@ -1576,6 +1783,11 @@ export class RanchScene extends Phaser.Scene {
     this.tweens.killTweensOf(slot.sprite)
     slot.sprite.setAlpha(1)
     slot.sprite.setScale(1)
+
+    if (!this.isAnimalSlotUnlockedByExpansion(slot)) {
+      slot.sprite.setTint(0x6f5f4a).setAlpha(0.25)
+      return
+    }
 
     if (!slot.isActive) {
       slot.sprite.setTint(0x9f8f79).setAlpha(0.35)
@@ -1788,6 +2000,10 @@ export class RanchScene extends Phaser.Scene {
       return 'invalid_zone'
     }
 
+    if (!this.isZoneUnlocked('crop_area')) {
+      return 'zone_locked'
+    }
+
     const tileKey = this.createTileKey(tileX, tileY)
     if (this.collisionTiles.has(tileKey)) {
       return 'blocked'
@@ -1795,6 +2011,10 @@ export class RanchScene extends Phaser.Scene {
 
     if (this.plantedCrops.has(tileKey)) {
       return 'occupied'
+    }
+
+    if (this.plantedCrops.size >= this.getExpansionStateSnapshot().unlocks.cropTileCapacity) {
+      return 'capacity_locked'
     }
 
     return 'ok'
@@ -1875,6 +2095,20 @@ export class RanchScene extends Phaser.Scene {
   ): void {
     if (validation === 'invalid_zone') {
       this.showInteractionFeedback('Plant only inside the Crop Area.', FEEDBACK_COLOR_ERROR)
+      return
+    }
+
+    if (validation === 'zone_locked') {
+      this.showInteractionFeedback(this.getLockedZonePrompt('crop_area'), FEEDBACK_COLOR_ERROR)
+      return
+    }
+
+    if (validation === 'capacity_locked') {
+      const cropCapacity = this.getExpansionStateSnapshot().unlocks.cropTileCapacity
+      this.showInteractionFeedback(
+        `Crop capacity (${cropCapacity}) reached. Buy the next expansion tier at the Utility Well.`,
+        FEEDBACK_COLOR_ERROR,
+      )
       return
     }
 
@@ -2164,6 +2398,52 @@ export class RanchScene extends Phaser.Scene {
     }
   }
 
+  private tryPurchaseExpansion(
+    inputSource: ExpansionInputSource,
+    interactableId: string,
+  ): boolean {
+    const services = getGameServices(this)
+    const sourceContext = `ranch_scene:${inputSource}:${interactableId}`
+    const purchase = services.purchaseNextExpansionTier(sourceContext)
+
+    services.telemetry.track('expansion_interaction', {
+      inputSource,
+      interactableId,
+      sourceContext,
+      result: purchase.result,
+      tierBefore: purchase.tierBefore,
+      tierAfter: purchase.tierAfter,
+      nextCost: purchase.nextCost,
+      balance: purchase.balance,
+      eventTimestampMs: Date.now(),
+    })
+
+    if (purchase.result === 'purchased') {
+      const tierConfig = getExpansionTierConfig(purchase.tierAfter)
+      const tierLabel = tierConfig?.label ?? `Tier ${purchase.tierAfter}`
+      this.expansionState = services.getExpansionStateSnapshot()
+      this.refreshExpansionGatedVisuals()
+      this.updateInteractionState(ranchMapContract)
+      this.showInteractionFeedback(
+        `Unlocked ${tierLabel}. Ranch tier ${purchase.tierAfter} is now active.`,
+        FEEDBACK_COLOR_SUCCESS,
+      )
+      return true
+    }
+
+    if (purchase.result === 'insufficient_funds') {
+      const missingCoins = Math.max(1, (purchase.nextCost ?? 0) - purchase.balance)
+      this.showInteractionFeedback(
+        `Need ${missingCoins} more coin${missingCoins === 1 ? '' : 's'} for expansion.`,
+        FEEDBACK_COLOR_ERROR,
+      )
+      return false
+    }
+
+    this.showInteractionFeedback('All ranch expansion tiers are already unlocked.', FEEDBACK_COLOR_DEFAULT)
+    return false
+  }
+
   private tryInteract(): void {
     if (!this.activeInteractable) {
       return
@@ -2174,7 +2454,17 @@ export class RanchScene extends Phaser.Scene {
       return
     }
 
+    if (this.isExpansionPurchaseInteractableId(this.activeInteractable.id)) {
+      this.tryPurchaseExpansion('keyboard', this.activeInteractable.id)
+      return
+    }
+
     if (this.activeInteractable.id === CROP_ZONE_INTERACTABLE_ID) {
+      if (!this.isZoneUnlocked('crop_area')) {
+        this.showInteractionFeedback(this.getLockedZonePrompt('crop_area'), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       const plantingTile = this.getPlantingTileInFront(ranchMapContract)
       if (!plantingTile) {
         return
@@ -2185,6 +2475,11 @@ export class RanchScene extends Phaser.Scene {
     }
 
     if (this.activeInteractable.id === ANIMAL_PEN_INTERACTABLE_ID) {
+      if (!this.isZoneUnlocked('animal_pen')) {
+        this.showInteractionFeedback(this.getLockedZonePrompt('animal_pen'), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       const interactionTile = this.getPlantingTileInFront(ranchMapContract)
       if (!interactionTile) {
         return
@@ -2195,8 +2490,22 @@ export class RanchScene extends Phaser.Scene {
     }
 
     if (this.isSellInteractableId(this.activeInteractable.id)) {
+      const zoneId = this.getZoneIdForInteractable(this.activeInteractable.id)
+      if (zoneId && !this.isZoneUnlocked(zoneId)) {
+        this.showInteractionFeedback(this.getLockedZonePrompt(zoneId), FEEDBACK_COLOR_ERROR)
+        return
+      }
+
       this.trySellInventory(this.resolveSellPointId(this.activeInteractable.id), 'keyboard')
       return
+    }
+
+    if (this.isInteractableLockedByExpansion(this.activeInteractable.id)) {
+      const zoneId = this.getZoneIdForInteractable(this.activeInteractable.id)
+      if (zoneId) {
+        this.showInteractionFeedback(this.getLockedZonePrompt(zoneId), FEEDBACK_COLOR_ERROR)
+        return
+      }
     }
 
     this.showInteractionFeedback(`Interacted with ${this.activeInteractable.label}`)
