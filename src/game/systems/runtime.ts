@@ -3,6 +3,14 @@ import Phaser from 'phaser'
 import { animalProductionConfigs } from '../config/animals'
 import { cropSeedConfigs, defaultCropSeedId, type CropSeedId } from '../config/crops'
 import {
+  clampExpansionTier,
+  getDefaultExpansionTier,
+  getExpansionTierConfig,
+  getMaxExpansionTier,
+  getNextExpansionTierConfig,
+  type ExpansionTierUnlockEffects,
+} from '../config/expansion'
+import {
   ftueConfig,
   getFtueStepConfig,
   getNextFtueStepId,
@@ -55,6 +63,8 @@ const RANCH_CROPS_REGISTRY_KEY = 'tiny-ranch:ranch-crops'
 const RANCH_ANIMALS_REGISTRY_KEY = 'tiny-ranch:ranch-animals'
 const FTUE_STATE_REGISTRY_KEY = 'tiny-ranch:ftue-state'
 const FTUE_CHANGED_EVENT = 'tiny-ranch:ftue-changed'
+const EXPANSION_TIER_REGISTRY_KEY = 'tiny-ranch:expansion-tier'
+const EXPANSION_TIER_CHANGED_EVENT = 'tiny-ranch:expansion-tier-changed'
 const UPGRADE_LEVELS_REGISTRY_KEY = 'tiny-ranch:upgrade-levels'
 const UPGRADE_LEVELS_CHANGED_EVENT = 'tiny-ranch:upgrade-levels-changed'
 
@@ -88,6 +98,23 @@ export interface FtueStateSnapshot {
   isCompleted: boolean
 }
 
+export interface ExpansionStateSnapshot {
+  currentTier: number
+  maxTier: number
+  nextTier: number | null
+  nextCost: number | null
+  unlocks: ExpansionTierUnlockEffects
+  nextUnlocks: ExpansionTierUnlockEffects | null
+}
+
+export interface ExpansionPurchaseResult {
+  result: 'purchased' | 'insufficient_funds' | 'max_tier'
+  tierBefore: number
+  tierAfter: number
+  nextCost: number | null
+  balance: CurrencyBalance
+}
+
 export interface UpgradeStateSnapshot {
   levels: Readonly<UpgradeLevels>
   effects: UpgradeEffectSnapshot
@@ -108,6 +135,7 @@ export type InventoryChangeListener = (
 ) => void
 export type CurrencyChangeListener = (balance: CurrencyBalance, change: CurrencyChange) => void
 export type FtueStateChangeListener = (state: FtueStateSnapshot) => void
+export type ExpansionStateChangeListener = (state: ExpansionStateSnapshot) => void
 export type UpgradeStateChangeListener = (state: UpgradeStateSnapshot) => void
 
 export interface InventorySaleResult {
@@ -174,6 +202,9 @@ export interface GameServices {
   addCurrency: (amount: number, reason?: string) => CurrencyBalance
   getCurrencyBalance: () => CurrencyBalance
   onCurrencyChanged: (listener: CurrencyChangeListener) => () => void
+  getExpansionStateSnapshot: () => ExpansionStateSnapshot
+  purchaseNextExpansionTier: (source?: string) => ExpansionPurchaseResult
+  onExpansionStateChanged: (listener: ExpansionStateChangeListener) => () => void
   getUpgradeStateSnapshot: () => UpgradeStateSnapshot
   purchaseUpgrade: (upgradeId: UpgradeId, source?: string) => UpgradePurchaseResult
   onUpgradeStateChanged: (listener: UpgradeStateChangeListener) => () => void
@@ -273,6 +304,14 @@ function cloneAnimalState(animal: SaveAnimalStateV1): SaveAnimalStateV1 {
     hasProductReady: animal.hasProductReady,
     cycleStartedAtEpochMs: animal.cycleStartedAtEpochMs,
     nextProductAtEpochMs: animal.nextProductAtEpochMs,
+  }
+}
+
+function cloneExpansionUnlockEffects(unlocks: ExpansionTierUnlockEffects): ExpansionTierUnlockEffects {
+  return {
+    cropTileCapacity: unlocks.cropTileCapacity,
+    animalSlotCapacity: unlocks.animalSlotCapacity,
+    unlockedZoneIds: [...unlocks.unlockedZoneIds],
   }
 }
 
@@ -382,6 +421,7 @@ export function createGameServices(
     game.registry.set(RANCH_CROPS_REGISTRY_KEY, [])
     game.registry.set(RANCH_ANIMALS_REGISTRY_KEY, [])
     game.registry.set(FTUE_STATE_REGISTRY_KEY, createDefaultFtueSaveState())
+    game.registry.set(EXPANSION_TIER_REGISTRY_KEY, getDefaultExpansionTier())
     game.registry.set(UPGRADE_LEVELS_REGISTRY_KEY, createDefaultUpgradeLevels())
     game.registry.set(ACTIVE_SCENE_REGISTRY_KEY, null)
   }
@@ -412,6 +452,36 @@ export function createGameServices(
 
   const getCurrencyBalance = (): CurrencyBalance => {
     return readCurrencyBalance()
+  }
+
+  const readExpansionTier = (): number => {
+    const value = game.registry.get(EXPANSION_TIER_REGISTRY_KEY)
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return getDefaultExpansionTier()
+    }
+
+    return clampExpansionTier(value)
+  }
+
+  const getExpansionStateSnapshot = (): ExpansionStateSnapshot => {
+    const currentTier = readExpansionTier()
+    const currentTierConfig =
+      getExpansionTierConfig(currentTier) ?? getExpansionTierConfig(getDefaultExpansionTier())
+
+    if (!currentTierConfig) {
+      throw new Error('No default expansion tier config is defined')
+    }
+
+    const nextTierConfig = getNextExpansionTierConfig(currentTier)
+
+    return {
+      currentTier,
+      maxTier: getMaxExpansionTier(),
+      nextTier: nextTierConfig?.tier ?? null,
+      nextCost: nextTierConfig?.cost ?? null,
+      unlocks: cloneExpansionUnlockEffects(currentTierConfig.unlocks),
+      nextUnlocks: nextTierConfig ? cloneExpansionUnlockEffects(nextTierConfig.unlocks) : null,
+    }
   }
 
   const readUpgradeLevels = (): UpgradeLevels => {
@@ -530,6 +600,7 @@ export function createGameServices(
       progression: {
         activeScene: getActiveScene(),
         activeSeedId: ranchSnapshot.activeSeedId,
+        expansionTier: readExpansionTier(),
         upgrades: readUpgradeLevels(),
       },
       ftue: ftueState,
@@ -665,6 +736,95 @@ export function createGameServices(
 
   const addCurrency = (amount: number, reason: string = 'unspecified'): CurrencyBalance => {
     return applyCurrencyDelta(amount, reason)
+  }
+
+  const purchaseNextExpansionTier = (
+    source: string = 'unspecified',
+  ): ExpansionPurchaseResult => {
+    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const tierBefore = readExpansionTier()
+    const nextTierConfig = getNextExpansionTierConfig(tierBefore)
+    const timestampMs = Date.now()
+
+    if (!nextTierConfig) {
+      const balance = getCurrencyBalance()
+      telemetry.track('expansion_purchase_attempt', {
+        source: normalizedSource,
+        result: 'max_tier',
+        tierBefore,
+        tierAfter: tierBefore,
+        cost: null,
+        balance,
+        eventTimestampMs: timestampMs,
+      })
+
+      return {
+        result: 'max_tier',
+        tierBefore,
+        tierAfter: tierBefore,
+        nextCost: null,
+        balance,
+      }
+    }
+
+    const nextCost = nextTierConfig.cost
+    const balanceBefore = getCurrencyBalance()
+
+    if (balanceBefore < nextCost) {
+      telemetry.track('expansion_purchase_attempt', {
+        source: normalizedSource,
+        result: 'insufficient_funds',
+        tierBefore,
+        tierAfter: tierBefore,
+        cost: nextCost,
+        balance: balanceBefore,
+        eventTimestampMs: timestampMs,
+      })
+
+      return {
+        result: 'insufficient_funds',
+        tierBefore,
+        tierAfter: tierBefore,
+        nextCost,
+        balance: balanceBefore,
+      }
+    }
+
+    game.registry.set(EXPANSION_TIER_REGISTRY_KEY, nextTierConfig.tier)
+    const balance = applyCurrencyDelta(-nextCost, `expansion_purchase:tier_${nextTierConfig.tier}`)
+    const nextState = getExpansionStateSnapshot()
+
+    telemetry.track('expansion_purchase_attempt', {
+      source: normalizedSource,
+      result: 'purchased',
+      tierBefore,
+      tierAfter: nextTierConfig.tier,
+      cost: nextCost,
+      balance,
+      eventTimestampMs: timestampMs,
+    })
+    telemetry.track('expansion_purchased', {
+      source: normalizedSource,
+      tierBefore,
+      tierAfter: nextTierConfig.tier,
+      cost: nextCost,
+      balance,
+      cropTileCapacity: nextTierConfig.unlocks.cropTileCapacity,
+      animalSlotCapacity: nextTierConfig.unlocks.animalSlotCapacity,
+      unlockedZoneCount: nextTierConfig.unlocks.unlockedZoneIds.length,
+      unlockedZoneIds: nextTierConfig.unlocks.unlockedZoneIds.join(','),
+      eventTimestampMs: Date.now(),
+    })
+
+    game.events.emit(EXPANSION_TIER_CHANGED_EVENT, nextState)
+
+    return {
+      result: 'purchased',
+      tierBefore,
+      tierAfter: nextTierConfig.tier,
+      nextCost: nextState.nextCost,
+      balance,
+    }
   }
 
   const purchaseUpgrade = (
@@ -819,6 +979,10 @@ export function createGameServices(
       game.registry.set(INVENTORY_REGISTRY_KEY, normalizeInventorySnapshot({ ...saveState.inventory }))
       game.registry.set(CURRENCY_REGISTRY_KEY, Math.floor(saveState.currency))
       game.registry.set(FTUE_STATE_REGISTRY_KEY, normalizeFtueState(saveState.ftue))
+      game.registry.set(
+        EXPANSION_TIER_REGISTRY_KEY,
+        clampExpansionTier(saveState.progression.expansionTier),
+      )
       game.registry.set(
         UPGRADE_LEVELS_REGISTRY_KEY,
         normalizeUpgradeLevels(saveState.progression.upgrades),
@@ -1024,6 +1188,17 @@ export function createGameServices(
     }
   }
 
+  const onExpansionStateChanged = (listener: ExpansionStateChangeListener): (() => void) => {
+    const handler = (snapshot: ExpansionStateSnapshot): void => {
+      listener(snapshot)
+    }
+
+    game.events.on(EXPANSION_TIER_CHANGED_EVENT, handler)
+    return () => {
+      game.events.off(EXPANSION_TIER_CHANGED_EVENT, handler)
+    }
+  }
+
   const onUpgradeStateChanged = (listener: UpgradeStateChangeListener): (() => void) => {
     const handler = (snapshot: UpgradeStateSnapshot): void => {
       listener(snapshot)
@@ -1104,6 +1279,9 @@ export function createGameServices(
     addCurrency,
     getCurrencyBalance,
     onCurrencyChanged,
+    getExpansionStateSnapshot,
+    purchaseNextExpansionTier,
+    onExpansionStateChanged,
     getUpgradeStateSnapshot,
     purchaseUpgrade,
     onUpgradeStateChanged,

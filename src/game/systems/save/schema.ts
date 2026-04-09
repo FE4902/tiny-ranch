@@ -2,6 +2,11 @@ import { animalProductionConfigs, type AnimalProductionId } from '../../config/a
 import { cropSeedConfigs, type CropSeedId } from '../../config/crops'
 import { getFirstFtueStepId, isFtueStepId, type FtueStepId } from '../../config/ftue'
 import {
+  clampExpansionTier,
+  getDefaultExpansionTier,
+  getMaxExpansionTier,
+} from '../../config/expansion'
+import {
   clampUpgradeLevel,
   createDefaultUpgradeLevels,
   getUpgradeMaxLevel,
@@ -39,6 +44,7 @@ export interface SaveAnimalStateV1 {
 export interface SaveProgressionStateV1 {
   activeScene: PlayableSceneKey | null
   activeSeedId: CropSeedId
+  expansionTier: number
   upgrades: SaveUpgradeLevelsV1
 }
 
@@ -212,6 +218,11 @@ function decodeProgression(value: unknown): SaveProgressionStateV1 | null {
     return null
   }
 
+  const expansionTier = decodeExpansionTier(value.expansionTier)
+  if (expansionTier === null) {
+    return null
+  }
+
   const upgrades = decodeUpgradeLevels(value.upgrades)
   if (!upgrades) {
     return null
@@ -220,8 +231,25 @@ function decodeProgression(value: unknown): SaveProgressionStateV1 | null {
   return {
     activeScene: value.activeScene,
     activeSeedId: value.activeSeedId,
+    expansionTier,
     upgrades,
   }
+}
+
+function decodeExpansionTier(value: unknown): number | null {
+  if (value === undefined) {
+    return getDefaultExpansionTier()
+  }
+
+  if (!isFiniteInteger(value) || value < 1) {
+    return null
+  }
+
+  if (value > getMaxExpansionTier()) {
+    return clampExpansionTier(value)
+  }
+
+  return value
 }
 
 function decodeUpgradeLevels(value: unknown): SaveUpgradeLevelsV1 | null {
