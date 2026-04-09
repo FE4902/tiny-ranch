@@ -6,9 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "build:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run build",
+    "bundle:measure": "npm run build && node scripts/measure-bundle.mjs",
+    "bundle:measure:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run bundle:measure",
+    "preview": "vite preview",
+    "test:smoke": "playwright test",
+    "test:smoke:headed": "playwright test --headed",
+    "test:smoke:debug": "playwright test --debug"
   },
   "devDependencies": {
+    "@playwright/test": "^1.59.1",
     "typescript": "~5.9.3",
     "vite": "^8.0.1"
   },

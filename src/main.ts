@@ -1,5 +1,14 @@
 import './style.css'
 
+type GlobalScopeWithNodeGlobal = typeof globalThis & {
+  global?: typeof globalThis
+}
+
+const globalScope = globalThis as GlobalScopeWithNodeGlobal
+if (typeof globalScope.global === 'undefined') {
+  globalScope.global = globalThis
+}
+
 const app = document.querySelector<HTMLDivElement>('#app')
 
 if (!app) {
@@ -34,10 +43,11 @@ app.innerHTML = `
         <div class="sidebar-card">
           <p class="sidebar-card__label">Source layout</p>
           <ul class="sidebar-card__list">
+            <li><code>src/game/assets</code> tracks imported spritesheet metadata.</li>
             <li><code>src/game/scenes</code> handles flow and world views.</li>
             <li><code>src/game/ui</code> owns reusable HUD components.</li>
             <li><code>src/game/systems</code> keeps telemetry and runtime services isolated.</li>
-            <li><code>src/assets</code> is ready for pack-in art and audio.</li>
+            <li><code>src/assets/tiny-ranch</code> stores the imported art pack.</li>
           </ul>
         </div>
 

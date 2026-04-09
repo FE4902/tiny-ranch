@@ -4,6 +4,7 @@ import { createGameConfig } from './config/gameConfig'
 import { PerformanceTracker } from './systems/performance'
 import { createGameServices, registerGameServices } from './systems/runtime'
 import { ConsoleTelemetryClient } from './systems/telemetry'
+import { installSmokeHarness } from './testing/smokeHarness'
 
 export function createGame(parent: string): Phaser.Game {
   const game = new Phaser.Game(createGameConfig(parent))
@@ -13,6 +14,7 @@ export function createGame(parent: string): Phaser.Game {
 
   registerGameServices(game, services)
   services.hydrateSavedGameStateOnBoot()
+  installSmokeHarness(game)
 
   return game
 }

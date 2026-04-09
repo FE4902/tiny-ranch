@@ -21,17 +21,64 @@ Build a production bundle with:
 npm run build
 ```
 
+`npm run build` now defaults to the Phaser `core` build profile for production bundle size.
+If you need an immediate rollback to the full Phaser package path, run:
+
+```bash
+npm run build:rollback
+```
+
+Measure production JS bundle size (raw/minified/gzip) against the mobile-web budget gates with:
+
+```bash
+npm run bundle:measure
+```
+
+To compare against the rollback path, run:
+
+```bash
+npm run bundle:measure:rollback
+```
+
+CI enforces the same bundle ceilings on every PR and `main` push via
+`.github/workflows/bundle-budget-gate.yml`.
+
+Run the deterministic core-loop smoke suite locally with:
+
+```bash
+npm run test:smoke
+```
+
+The smoke run serves the app with `VITE_EXPERIMENT_PHASER_BUILD=package` and starts the
+game with `?smokeTest=1`, which exposes a test harness on `window.__TINY_RANCH_SMOKE__`
+and executes:
+launch -> plant -> harvest -> sell -> expansion purchase -> reload save.
+The fixture plants at tile `3,10`, fast-forwards crop growth, seeds extra turnips for
+expansion funding, then verifies expansion tier persistence after reload.
+
+For failure triage:
+
+1. Re-run a single project (`npm run test:smoke -- --project=desktop-chromium` or `--project=mobile-chromium`).
+2. Open the latest trace (`npx playwright show-trace test-results/**/trace.zip`).
+3. Capture an interactive repro (`npm run test:smoke:debug`) and inspect `window.__TINY_RANCH_SMOKE__.getSnapshot()` in DevTools.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration
+- `src/game/assets` contains typed spritesheet manifests and preload helpers
+- `src/game/maps` contains typed map contracts (spawn, zones, collisions, landmarks)
 - `src/game/scenes` contains boot, preload, playable scenes, and the HUD scene
 - `src/game/ui` contains reusable in-game UI components
 - `src/game/systems` contains telemetry and performance helpers
-- `src/assets` is ready for art/audio placeholders and future asset-pack imports
+- `src/assets/tiny-ranch` stores the imported Tiny Ranch sprite sheets by category
+- `docs/tiny-ranch-asset-inventory.md` documents available sheets and the MVP art cut
+- `docs/ver-42-startup-telemetry-baseline.md` defines startup metric events and weekly review flow
 
 ## Current Foundation
 
 - Responsive Phaser bootstrap with mobile-web-friendly resize defaults
 - Boot -> Preload -> Ranch flow with a persistent HUD scene
 - Scene routing between Ranch and Barn shell scenes
-- Lightweight console telemetry for boot, preload, scene changes, and first frame timing
+- Lightweight startup telemetry for boot, first playable scene, and scene first-frame timing
+- Imported Tiny Ranch spritesheets ready for scene integration
+- First playable ranch map contract with named interaction zones and collision metadata
