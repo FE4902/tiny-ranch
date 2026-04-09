@@ -570,6 +570,13 @@ export function createGameServices(
   }
 
   if (typeof window !== 'undefined') {
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState !== 'hidden') {
+        return
+      }
+
+      trackSessionEnd('visibilitychange')
+    }
     const handlePageHide = (): void => {
       trackSessionEnd('pagehide')
     }
@@ -577,10 +584,12 @@ export function createGameServices(
       trackSessionEnd('beforeunload')
     }
 
+    document.addEventListener('visibilitychange', handleVisibilityChange)
     window.addEventListener('pagehide', handlePageHide)
     window.addEventListener('beforeunload', handleBeforeUnload)
 
     game.events.once(Phaser.Core.Events.DESTROY, () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('pagehide', handlePageHide)
       window.removeEventListener('beforeunload', handleBeforeUnload)
       trackSessionEnd('game_destroyed')
