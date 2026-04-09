@@ -62,6 +62,15 @@ For failure triage:
 2. Open the latest trace (`npx playwright show-trace test-results/**/trace.zip`).
 3. Capture an interactive repro (`npm run test:smoke:debug`) and inspect `window.__TINY_RANCH_SMOKE__.getSnapshot()` in DevTools.
 
+Run the deterministic expansion pacing check with:
+
+```bash
+npm run balance:check
+```
+
+This script reports time-to-first-expansion and time-to-second-expansion checkpoints and fails when either checkpoint drifts outside the configured target range.
+Tuning levers and targets are centralized in `src/game/config/expansionEconomyTuning.shared.js` and documented in `docs/ver-78-expansion-economy-pacing.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration

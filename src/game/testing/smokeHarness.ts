@@ -2,6 +2,7 @@ import type Phaser from 'phaser'
 
 import type { CropSeedId } from '../config/crops'
 import { getCropSeedConfig } from '../config/crops'
+import { getItemSellPrice } from '../config/economy'
 import { SCENE_KEYS } from '../constants'
 import { ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
 import type { RanchScene } from '../scenes/RanchScene'
@@ -13,7 +14,6 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000
 const POLL_INTERVAL_MS = 50
 const SMOKE_TILE = Object.freeze({ x: 3, y: 10 })
 const EXPANSION_WELL_INTERACTABLE_ID = 'zone:utility_well'
-const EXTRA_TURNIP_COUNT_FOR_EXPANSION = 19
 
 type InputSource = 'keyboard' | 'pointer'
 type SellPointId = 'shipping_crate' | 'market_stall' | 'unknown'
@@ -169,7 +169,18 @@ function runCoreLoopFlow(game: Phaser.Game): CoreLoopRunResult {
     throw new Error('Smoke flow failed on harvest step.')
   }
 
-  services.addInventoryItem('turnip', EXTRA_TURNIP_COUNT_FOR_EXPANSION)
+  const expansionCost = services.getExpansionStateSnapshot().nextCost
+  if (expansionCost === null) {
+    throw new Error('Smoke flow expected an available expansion tier cost.')
+  }
+
+  const missingCoinsForExpansion = Math.max(0, expansionCost - services.getCurrencyBalance())
+  const turnipUnitPrice = getItemSellPrice('turnip')
+  const extraTurnipsNeededForExpansion = Math.ceil(missingCoinsForExpansion / turnipUnitPrice)
+  if (extraTurnipsNeededForExpansion > 0) {
+    services.addInventoryItem('turnip', extraTurnipsNeededForExpansion)
+  }
+
   const sold = sceneBindings.trySellInventory('shipping_crate', 'pointer')
   if (!sold) {
     throw new Error('Smoke flow failed on sell step.')

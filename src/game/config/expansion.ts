@@ -1,4 +1,5 @@
 import type { RanchZoneId } from '../maps/ranchMap'
+import { expansionEconomyTuning } from './expansionEconomyTuning.shared.js'
 
 export interface ExpansionTierUnlockEffects {
   cropTileCapacity: number
@@ -54,41 +55,23 @@ function defineExpansionTier(config: RanchExpansionTierConfig): RanchExpansionTi
   return config
 }
 
-const tierConfigs = [
+const tierConfigs = expansionEconomyTuning.expansionTiers.map((tier) =>
   defineExpansionTier({
-    tier: 1,
-    cost: 0,
-    label: 'Starter Homestead',
-    summary: 'Foundational plot with basic crop operations and shipping.',
+    tier: tier.tier,
+    cost: tier.cost,
+    label: tier.label,
+    summary: tier.summary,
     unlocks: {
-      cropTileCapacity: 35,
-      animalSlotCapacity: 2,
-      unlockedZoneIds: ['crop_area', 'shipping_crate'],
+      cropTileCapacity: tier.cropTileCapacity,
+      animalSlotCapacity: tier.animalSlotCapacity,
+      unlockedZoneIds: [...tier.unlockedZoneIds],
     },
   }),
-  defineExpansionTier({
-    tier: 2,
-    cost: 220,
-    label: 'Market Expansion',
-    summary: 'Unlocks broader operations and stronger economy throughput.',
-    unlocks: {
-      cropTileCapacity: 50,
-      animalSlotCapacity: 4,
-      unlockedZoneIds: ['market_stall', 'utility_well'],
-    },
-  }),
-  defineExpansionTier({
-    tier: 3,
-    cost: 520,
-    label: 'Full Ranch Grounds',
-    summary: 'Unlocks full ranch footprint for advanced crop and animal loops.',
-    unlocks: {
-      cropTileCapacity: 72,
-      animalSlotCapacity: 6,
-      unlockedZoneIds: ['animal_pen', 'barn_entry'],
-    },
-  }),
-] as const
+)
+
+if (tierConfigs.length === 0) {
+  throw new Error('At least one ranch expansion tier must be configured')
+}
 
 tierConfigs.forEach((config, index) => {
   const expectedTier = index + 1
@@ -103,7 +86,7 @@ tierConfigs.forEach((config, index) => {
 
 export const ranchExpansionTiers = Object.freeze(tierConfigs)
 
-export type ExpansionTierId = (typeof tierConfigs)[number]['tier']
+export type ExpansionTierId = number
 
 const MIN_EXPANSION_TIER = ranchExpansionTiers[0].tier
 const MAX_EXPANSION_TIER = ranchExpansionTiers[ranchExpansionTiers.length - 1].tier

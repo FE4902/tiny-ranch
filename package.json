@@ -9,6 +9,7 @@
     "build:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run build",
     "bundle:measure": "npm run build && node scripts/measure-bundle.mjs",
     "bundle:measure:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run bundle:measure",
+    "balance:check": "node scripts/check-expansion-pacing.mjs",
     "preview": "vite preview",
     "test:smoke": "playwright test",
     "test:smoke:headed": "playwright test --headed",

@@ -1,3 +1,10 @@
+import {
+  expansionEconomyTuning,
+  type ExpansionEconomyUpgradeConfig,
+  type ExpansionEconomyUpgradeId,
+  type ExpansionEconomyUpgradeLevelConfig,
+} from './expansionEconomyTuning.shared.js'
+
 export interface RanchUpgradeLevelConfig {
   cost: number
   summary: string
@@ -55,50 +62,31 @@ function defineUpgradeConfig(config: RanchUpgradeConfig): RanchUpgradeConfig {
   return config
 }
 
+function cloneUpgradeLevelConfig(
+  level: ExpansionEconomyUpgradeLevelConfig,
+): RanchUpgradeLevelConfig {
+  return {
+    cost: level.cost,
+    summary: level.summary,
+    cropGrowthDurationMultiplier: level.cropGrowthDurationMultiplier,
+    sellPriceMultiplier: level.sellPriceMultiplier,
+  }
+}
+
+function cloneUpgradeConfig(config: ExpansionEconomyUpgradeConfig): RanchUpgradeConfig {
+  return {
+    label: config.label,
+    description: config.description,
+    levels: config.levels.map((level) => cloneUpgradeLevelConfig(level)),
+  }
+}
+
 const upgradeConfigsById = {
-  greenhouse_tools: defineUpgradeConfig({
-    label: 'Greenhouse Tools',
-    description: 'Improve irrigation and timing to accelerate crop growth.',
-    levels: [
-      {
-        cost: 40,
-        summary: 'Crops grow 12% faster',
-        cropGrowthDurationMultiplier: 0.88,
-      },
-      {
-        cost: 110,
-        summary: 'Crops grow 24% faster',
-        cropGrowthDurationMultiplier: 0.76,
-      },
-      {
-        cost: 240,
-        summary: 'Crops grow 35% faster',
-        cropGrowthDurationMultiplier: 0.65,
-      },
-    ],
-  }),
-  market_ledger: defineUpgradeConfig({
-    label: 'Market Ledger',
-    description: 'Improve pricing strategy to increase sell revenue.',
-    levels: [
-      {
-        cost: 60,
-        summary: 'Sell value +12%',
-        sellPriceMultiplier: 1.12,
-      },
-      {
-        cost: 150,
-        summary: 'Sell value +28%',
-        sellPriceMultiplier: 1.28,
-      },
-      {
-        cost: 320,
-        summary: 'Sell value +45%',
-        sellPriceMultiplier: 1.45,
-      },
-    ],
-  }),
-} as const satisfies Record<string, RanchUpgradeConfig>
+  greenhouse_tools: defineUpgradeConfig(
+    cloneUpgradeConfig(expansionEconomyTuning.upgrades.greenhouse_tools),
+  ),
+  market_ledger: defineUpgradeConfig(cloneUpgradeConfig(expansionEconomyTuning.upgrades.market_ledger)),
+} as const satisfies Record<ExpansionEconomyUpgradeId, RanchUpgradeConfig>
 
 export type UpgradeId = keyof typeof upgradeConfigsById
 export type UpgradeLevels = Record<UpgradeId, number>
