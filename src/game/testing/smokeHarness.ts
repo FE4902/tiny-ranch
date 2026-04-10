@@ -60,10 +60,19 @@ interface CoreLoopRunResult {
   persistedExpansionTier: number | null
 }
 
+interface ScreenPoint {
+  x: number
+  y: number
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
   getSnapshot(): SmokeSnapshot
+  getTileScreenPoint(tileX: number, tileY: number): ScreenPoint
+  debugGetPlantedCropTiles(): Array<{ x: number; y: number }>
+  debugForceCropToMature(tileX: number, tileY: number): void
+  debugSeedInventory(itemId: string, quantity: number): void
 }
 
 type SmokeWindow = Window & {
@@ -139,6 +148,74 @@ function forceCropToMature(sceneBindings: RanchSceneDebugBindings, tileX: number
   const totalGrowthMs = seedConfig.stageDurationsMs.reduce((sum, durationMs) => sum + durationMs, 0)
   crop.plantedAtEpochMs = Date.now() - totalGrowthMs - 1
   sceneBindings.syncCropGrowthFromClock()
+}
+
+function getTileScreenPoint(game: Phaser.Game, tileX: number, tileY: number): ScreenPoint {
+  if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+    throw new Error('Tile coordinates must be finite numbers.')
+  }
+
+  const scene = getRanchSceneOrThrow(game)
+  const mapRoot = (scene as unknown as { mapRoot?: Phaser.GameObjects.Container }).mapRoot
+  if (!mapRoot) {
+    throw new Error('Ranch map root is not available yet.')
+  }
+
+  const canvas = game.canvas as HTMLCanvasElement | null
+  if (!canvas) {
+    throw new Error('Game canvas is not available.')
+  }
+
+  const rect = canvas.getBoundingClientRect()
+  const canvasGameWidth = game.scale.width
+  const canvasGameHeight = game.scale.height
+  if (!Number.isFinite(canvasGameWidth) || !Number.isFinite(canvasGameHeight)) {
+    throw new Error('Game scale dimensions are not available.')
+  }
+
+  const cssScaleX = rect.width / canvasGameWidth
+  const cssScaleY = rect.height / canvasGameHeight
+  const tileCenterWorldX = (Math.floor(tileX) + 0.5) * ranchMapContract.tileSize
+  const tileCenterWorldY = (Math.floor(tileY) + 0.5) * ranchMapContract.tileSize
+
+  return {
+    x: rect.left + (mapRoot.x + tileCenterWorldX * mapRoot.scaleX) * cssScaleX,
+    y: rect.top + (mapRoot.y + tileCenterWorldY * mapRoot.scaleY) * cssScaleY,
+  }
+}
+
+function debugForceCropToMature(game: Phaser.Game, tileX: number, tileY: number): void {
+  const sceneBindings = getDebugBindings(getRanchSceneOrThrow(game))
+  forceCropToMature(sceneBindings, Math.floor(tileX), Math.floor(tileY))
+}
+
+function debugGetPlantedCropTiles(game: Phaser.Game): Array<{ x: number; y: number }> {
+  const sceneBindings = getDebugBindings(getRanchSceneOrThrow(game))
+  const plantedTiles: Array<{ x: number; y: number }> = []
+
+  for (const tileKey of sceneBindings.plantedCrops.keys()) {
+    const [xToken, yToken] = tileKey.split(':')
+    const x = Number.parseInt(xToken, 10)
+    const y = Number.parseInt(yToken, 10)
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      plantedTiles.push({ x, y })
+    }
+  }
+
+  return plantedTiles
+}
+
+function debugSeedInventory(game: Phaser.Game, itemId: string, quantity: number): void {
+  if (typeof itemId !== 'string' || itemId.trim().length === 0) {
+    throw new Error('Inventory item id must be a non-empty string.')
+  }
+
+  if (!Number.isFinite(quantity) || Math.floor(quantity) <= 0) {
+    throw new Error('Inventory quantity must be a positive integer.')
+  }
+
+  const services = getGameServices(getRanchSceneOrThrow(game))
+  services.addInventoryItem(itemId, Math.floor(quantity))
 }
 
 function runCoreLoopFlow(game: Phaser.Game): CoreLoopRunResult {
@@ -245,5 +322,14 @@ export function installSmokeHarness(game: Phaser.Game): void {
     },
     runCoreLoopFlow: (): CoreLoopRunResult => runCoreLoopFlow(game),
     getSnapshot: (): SmokeSnapshot => getSnapshot(game),
+    getTileScreenPoint: (tileX: number, tileY: number): ScreenPoint =>
+      getTileScreenPoint(game, tileX, tileY),
+    debugGetPlantedCropTiles: (): Array<{ x: number; y: number }> => debugGetPlantedCropTiles(game),
+    debugForceCropToMature: (tileX: number, tileY: number): void => {
+      debugForceCropToMature(game, tileX, tileY)
+    },
+    debugSeedInventory: (itemId: string, quantity: number): void => {
+      debugSeedInventory(game, itemId, quantity)
+    },
   }
 }

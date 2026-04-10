@@ -43,24 +43,30 @@ npm run bundle:measure:rollback
 CI enforces the same bundle ceilings on every PR and `main` push via
 `.github/workflows/bundle-budget-gate.yml`.
 
-Run the deterministic core-loop smoke suite locally with:
+Run the smoke suite locally with:
 
 ```bash
 npm run test:smoke
 ```
 
 The smoke run serves the app with `VITE_EXPERIMENT_PHASER_BUILD=package` and starts the
-game with `?smokeTest=1`, which exposes a test harness on `window.__TINY_RANCH_SMOKE__`
-and executes:
-launch -> plant -> harvest -> sell -> expansion purchase -> reload save.
-The fixture plants at tile `3,10`, fast-forwards crop growth, seeds extra turnips for
-expansion funding, then verifies expansion tier persistence after reload.
+game with `?smokeTest=1`, which exposes a test harness on `window.__TINY_RANCH_SMOKE__`.
+
+Current suites:
+
+- `tests/smoke/core-loop.spec.ts`: deterministic harness-driven core loop regression on desktop + mobile.
+- `tests/smoke/touch-path.spec.ts`: mobile-only real touch-path regression that uses `page.touchscreen.tap(...)` for move -> plant -> harvest -> sell -> expansion, then verifies save persistence after reload.
 
 For failure triage:
 
-1. Re-run a single project (`npm run test:smoke -- --project=desktop-chromium` or `--project=mobile-chromium`).
-2. Open the latest trace (`npx playwright show-trace test-results/**/trace.zip`).
-3. Capture an interactive repro (`npm run test:smoke:debug`) and inspect `window.__TINY_RANCH_SMOKE__.getSnapshot()` in DevTools.
+1. Re-run only the touch suite on mobile:
+   `npm run test:smoke -- --project=mobile-chromium tests/smoke/touch-path.spec.ts`.
+2. Re-run a single project with fresh server startup when needed:
+   `CI=1 npm run test:smoke -- --project=mobile-chromium`.
+3. Open the latest trace:
+   `npx playwright show-trace test-results/**/trace.zip`.
+4. Capture an interactive repro and inspect smoke state in DevTools:
+   `npm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
 
 Run the deterministic expansion pacing check with:
 

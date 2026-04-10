@@ -839,7 +839,19 @@ export class RanchScene extends Phaser.Scene {
       return true
     }
 
-    return 'changedTouches' in pointer.event
+    const domEvent = pointer.event as unknown
+    if (domEvent && typeof domEvent === 'object') {
+      const pointerLikeEvent = domEvent as { pointerType?: unknown }
+      if (typeof pointerLikeEvent.pointerType === 'string') {
+        return pointerLikeEvent.pointerType.toLowerCase() === 'touch'
+      }
+
+      if ('changedTouches' in pointerLikeEvent) {
+        return true
+      }
+    }
+
+    return this.game.device.input.touch
   }
 
   private tryQueueTouchMoveTarget(tileX: number, tileY: number, contract: RanchMapContract): void {
