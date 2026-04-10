@@ -60,8 +60,15 @@ const FTUE_LABEL_BG = '#10241ee0'
 const FTUE_LABEL_MAX_WIDTH = 300
 const UPGRADE_PANEL_MAX_WIDTH = 360
 const UPGRADE_PANEL_GAP = 8
+const TOUCH_MOVE_TARGET_COLOR = 0x74d5ff
+const TOUCH_MOVE_TARGET_STROKE_COLOR = 0xd5f3ff
+const TOUCH_MOVE_INVALID_COLOR = 0xff9f7a
+const TOUCH_MOVE_INVALID_STROKE_COLOR = 0xffd6c8
+const TOUCH_MOVE_ARRIVE_DISTANCE_PX = 2
+const TOUCH_MOVE_BLOCKED_FRAMES_THRESHOLD = 8
 
 type FacingDirection = 'down' | 'left' | 'right' | 'up'
+type MovementInputSource = 'keyboard' | 'touch'
 
 type InteractableType = 'zone' | 'landmark'
 type PlantInputSource = 'keyboard' | 'pointer'
@@ -138,6 +145,7 @@ export class RanchScene extends Phaser.Scene {
   private backdrop?: Phaser.GameObjects.Graphics
   private player?: Phaser.GameObjects.Sprite
   private interactionHighlight?: Phaser.GameObjects.Rectangle
+  private touchMoveIndicator?: Phaser.GameObjects.Rectangle
   private interactionPrompt?: Phaser.GameObjects.Text
   private interactionFeedback?: Phaser.GameObjects.Text
   private inventoryLabel?: Phaser.GameObjects.Text
@@ -163,6 +171,9 @@ export class RanchScene extends Phaser.Scene {
   private unsubscribeFtueStateChanges?: () => void
   private expansionState: ExpansionStateSnapshot | null = null
   private activeInteractable: RanchInteractable | null = null
+  private touchMoveTargetTile: TilePosition | null = null
+  private touchMoveTargetWorld: Phaser.Math.Vector2 | null = null
+  private touchMoveBlockedFrames = 0
   private playerFacing: FacingDirection = 'down'
   private cursors?: Phaser.Types.Input.Keyboard.CursorKeys
   private moveUpKey?: Phaser.Input.Keyboard.Key
@@ -226,6 +237,7 @@ export class RanchScene extends Phaser.Scene {
     this.cropZone = this.resolveCropZone(ranchMapContract)
     this.animalZone = this.resolveAnimalZone(ranchMapContract)
     this.createInteractionHighlight()
+    this.createTouchMoveIndicator()
     this.createPlayer(ranchMapContract)
     this.createInteractionUi()
     this.createInventoryUi()
@@ -326,6 +338,9 @@ export class RanchScene extends Phaser.Scene {
       this.animalSlotsByTileKey.clear()
       this.interactables.length = 0
       this.activeInteractable = null
+      this.touchMoveTargetTile = null
+      this.touchMoveTargetWorld = null
+      this.touchMoveBlockedFrames = 0
       this.cropZone = null
       this.animalZone = null
       this.upgradeEntryLabels.clear()
@@ -335,6 +350,11 @@ export class RanchScene extends Phaser.Scene {
       this.hasTrackedUpgradePanelView = false
       this.expansionState = null
       this.cropLayer = undefined
+      if (this.touchMoveIndicator) {
+        this.tweens.killTweensOf(this.touchMoveIndicator)
+        this.touchMoveIndicator.destroy()
+        this.touchMoveIndicator = undefined
+      }
     })
   }
 
@@ -748,44 +768,104 @@ export class RanchScene extends Phaser.Scene {
   private handlePointerDown(pointer: Phaser.Input.Pointer): void {
     const tile = this.getTileFromPointer(pointer, ranchMapContract)
     if (!tile) {
+      if (this.isTouchMovementPointer(pointer) && this.touchMoveTargetWorld) {
+        this.clearTouchMoveTarget()
+        this.showInteractionFeedback('Movement canceled.', FEEDBACK_COLOR_DEFAULT)
+      }
       return
     }
 
-    const utilityWellZone = ranchMapContract.zones.find((zone) => zone.id === 'utility_well')
-    if (utilityWellZone && this.isTileWithinRect(tile.x, tile.y, utilityWellZone)) {
+    if (this.tryHandlePointerInteraction(tile.x, tile.y, ranchMapContract)) {
+      this.clearTouchMoveTarget()
+      return
+    }
+
+    if (this.isTouchMovementPointer(pointer)) {
+      this.tryQueueTouchMoveTarget(tile.x, tile.y, ranchMapContract)
+    }
+  }
+
+  private tryHandlePointerInteraction(
+    tileX: number,
+    tileY: number,
+    contract: RanchMapContract,
+  ): boolean {
+    const utilityWellZone = contract.zones.find((zone) => zone.id === 'utility_well')
+    if (utilityWellZone && this.isTileWithinRect(tileX, tileY, utilityWellZone)) {
       this.tryPurchaseExpansion('pointer', UTILITY_WELL_ZONE_INTERACTABLE_ID)
-      return
+      return true
     }
 
-    if (this.animalZone && this.isTileWithinRect(tile.x, tile.y, this.animalZone)) {
+    if (this.animalZone && this.isTileWithinRect(tileX, tileY, this.animalZone)) {
       if (!this.isZoneUnlocked('animal_pen')) {
         this.showInteractionFeedback(this.getLockedZonePrompt('animal_pen'), FEEDBACK_COLOR_ERROR)
-        return
+        return true
       }
 
-      this.tryAnimalActionAtTile(tile.x, tile.y, ranchMapContract, 'pointer')
-      return
+      this.tryAnimalActionAtTile(tileX, tileY, contract, 'pointer')
+      return true
     }
 
-    if (this.cropZone && this.isTileWithinRect(tile.x, tile.y, this.cropZone)) {
+    if (this.cropZone && this.isTileWithinRect(tileX, tileY, this.cropZone)) {
       if (!this.isZoneUnlocked('crop_area')) {
         this.showInteractionFeedback(this.getLockedZonePrompt('crop_area'), FEEDBACK_COLOR_ERROR)
-        return
+        return true
       }
 
-      this.tryCropActionAtTile(tile.x, tile.y, ranchMapContract, 'pointer')
-      return
+      this.tryCropActionAtTile(tileX, tileY, contract, 'pointer')
+      return true
     }
 
-    const economyZone = this.resolveEconomyZoneAtTile(tile.x, tile.y, ranchMapContract)
+    const economyZone = this.resolveEconomyZoneAtTile(tileX, tileY, contract)
     if (economyZone) {
       if (!this.isZoneUnlocked(economyZone.id)) {
         this.showInteractionFeedback(this.getLockedZonePrompt(economyZone.id), FEEDBACK_COLOR_ERROR)
-        return
+        return true
       }
 
       this.trySellInventory(this.resolveSellPointId(`zone:${economyZone.id}`), 'pointer')
+      return true
     }
+
+    return false
+  }
+
+  private isTouchMovementPointer(pointer: Phaser.Input.Pointer): boolean {
+    if (!this.inputPrefersTouch) {
+      return false
+    }
+
+    if (pointer.wasTouch) {
+      return true
+    }
+
+    return 'changedTouches' in pointer.event
+  }
+
+  private tryQueueTouchMoveTarget(tileX: number, tileY: number, contract: RanchMapContract): void {
+    if (
+      this.touchMoveTargetTile &&
+      this.touchMoveTargetTile.x === tileX &&
+      this.touchMoveTargetTile.y === tileY
+    ) {
+      this.clearTouchMoveTarget()
+      this.showInteractionFeedback('Movement canceled.', FEEDBACK_COLOR_DEFAULT)
+      return
+    }
+
+    if (!this.isTileWalkableForPlayer(tileX, tileY, contract)) {
+      this.flashTouchMoveIndicator(tileX, tileY, true)
+      this.showInteractionFeedback('That tile is blocked. Tap open ground to move.', FEEDBACK_COLOR_ERROR)
+      return
+    }
+
+    this.touchMoveTargetTile = { x: tileX, y: tileY }
+    this.touchMoveTargetWorld = new Phaser.Math.Vector2(
+      (tileX + 0.5) * contract.tileSize,
+      (tileY + 0.5) * contract.tileSize,
+    )
+    this.touchMoveBlockedFrames = 0
+    this.flashTouchMoveIndicator(tileX, tileY, false)
   }
 
   private getTileFromPointer(
@@ -806,6 +886,85 @@ export class RanchScene extends Phaser.Scene {
     }
 
     return { x: tileX, y: tileY }
+  }
+
+  private isTileWalkableForPlayer(tileX: number, tileY: number, contract: RanchMapContract): boolean {
+    if (!this.isTileInBounds(tileX, tileY, contract)) {
+      return false
+    }
+
+    if (this.collisionTiles.has(this.createTileKey(tileX, tileY))) {
+      return false
+    }
+
+    const radius = contract.tileSize * PLAYER_COLLISION_RADIUS_FACTOR
+    const worldX = (tileX + 0.5) * contract.tileSize
+    const worldY = (tileY + 0.5) * contract.tileSize
+    return !this.collidesAt(worldX, worldY, contract, radius)
+  }
+
+  private clearTouchMoveTarget(): void {
+    this.touchMoveTargetTile = null
+    this.touchMoveTargetWorld = null
+    this.touchMoveBlockedFrames = 0
+
+    if (!this.touchMoveIndicator) {
+      return
+    }
+
+    this.tweens.killTweensOf(this.touchMoveIndicator)
+    this.touchMoveIndicator.setVisible(false).setAlpha(1).setScale(1)
+  }
+
+  private flashTouchMoveIndicator(tileX: number, tileY: number, invalid: boolean): void {
+    if (!this.touchMoveIndicator) {
+      return
+    }
+
+    const indicator = this.touchMoveIndicator
+    const centerX = (tileX + 0.5) * ranchMapContract.tileSize
+    const centerY = (tileY + 0.5) * ranchMapContract.tileSize
+
+    this.tweens.killTweensOf(indicator)
+    indicator
+      .setPosition(centerX, centerY)
+      .setFillStyle(invalid ? TOUCH_MOVE_INVALID_COLOR : TOUCH_MOVE_TARGET_COLOR, invalid ? 0.28 : 0.2)
+      .setStrokeStyle(
+        1,
+        invalid ? TOUCH_MOVE_INVALID_STROKE_COLOR : TOUCH_MOVE_TARGET_STROKE_COLOR,
+        invalid ? 0.95 : 0.9,
+      )
+      .setVisible(true)
+      .setAlpha(1)
+      .setScale(1)
+
+    if (invalid) {
+      this.tweens.add({
+        targets: indicator,
+        alpha: 0,
+        duration: 220,
+        ease: 'Quad.easeOut',
+        onComplete: () => {
+          if (!this.touchMoveTargetTile) {
+            indicator.setVisible(false).setAlpha(1).setScale(1)
+            return
+          }
+
+          this.flashTouchMoveIndicator(this.touchMoveTargetTile.x, this.touchMoveTargetTile.y, false)
+        },
+      })
+      return
+    }
+
+    this.tweens.add({
+      targets: indicator,
+      alpha: 0.58,
+      scale: 1.08,
+      duration: 380,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    })
   }
 
   private resolveCropZone(contract: RanchMapContract): RanchZone | null {
@@ -989,6 +1148,26 @@ export class RanchScene extends Phaser.Scene {
       return
     }
 
+    const keyboardDirection = this.resolveKeyboardMovementDirection()
+    if (keyboardDirection) {
+      if (this.touchMoveTargetWorld) {
+        this.clearTouchMoveTarget()
+      }
+
+      const distance = PLAYER_MOVE_SPEED * (deltaMs / 1000)
+      this.movePlayerInDirection(contract, keyboardDirection, distance, 'keyboard')
+      return
+    }
+
+    if (this.touchMoveTargetWorld) {
+      this.updateTouchMoveStep(contract, deltaMs)
+      return
+    }
+
+    this.setPlayerIdlePose()
+  }
+
+  private resolveKeyboardMovementDirection(): Phaser.Math.Vector2 | null {
     const moveLeft = this.isAnyKeyDown(this.cursors?.left, this.moveLeftKey)
     const moveRight = this.isAnyKeyDown(this.cursors?.right, this.moveRightKey)
     const moveUp = this.isAnyKeyDown(this.cursors?.up, this.moveUpKey)
@@ -998,31 +1177,100 @@ export class RanchScene extends Phaser.Scene {
     const axisY = Number(moveDown) - Number(moveUp)
 
     if (axisX === 0 && axisY === 0) {
-      this.player.anims.stop()
-      this.player.setFrame(this.getIdleFrame(this.playerFacing))
+      return null
+    }
+
+    return new Phaser.Math.Vector2(axisX, axisY).normalize()
+  }
+
+  private updateTouchMoveStep(contract: RanchMapContract, deltaMs: number): void {
+    if (!this.player || !this.touchMoveTargetWorld || !this.touchMoveTargetTile) {
       return
     }
 
-    this.playerFacing = this.resolveFacing(axisX, axisY)
+    const remainingDirection = new Phaser.Math.Vector2(
+      this.touchMoveTargetWorld.x - this.player.x,
+      this.touchMoveTargetWorld.y - this.player.y,
+    )
+    const remainingDistance = remainingDirection.length()
+    if (remainingDistance <= TOUCH_MOVE_ARRIVE_DISTANCE_PX) {
+      this.player.setPosition(this.touchMoveTargetWorld.x, this.touchMoveTargetWorld.y)
+      this.clearTouchMoveTarget()
+      this.setPlayerIdlePose()
+      return
+    }
+
+    const maxDistance = PLAYER_MOVE_SPEED * (deltaMs / 1000)
+    const stepDistance = Math.min(maxDistance, remainingDistance)
+    const moved = this.movePlayerInDirection(contract, remainingDirection, stepDistance, 'touch')
+    if (moved) {
+      this.touchMoveBlockedFrames = 0
+      if (!this.touchMoveTargetWorld) {
+        this.setPlayerIdlePose()
+        return
+      }
+
+      const remainingAfterStep = Phaser.Math.Distance.Between(
+        this.player.x,
+        this.player.y,
+        this.touchMoveTargetWorld.x,
+        this.touchMoveTargetWorld.y,
+      )
+      if (remainingAfterStep <= TOUCH_MOVE_ARRIVE_DISTANCE_PX) {
+        this.player.setPosition(this.touchMoveTargetWorld.x, this.touchMoveTargetWorld.y)
+        this.clearTouchMoveTarget()
+        this.setPlayerIdlePose()
+      }
+      return
+    }
+
+    this.touchMoveBlockedFrames += 1
+    if (this.touchMoveBlockedFrames < TOUCH_MOVE_BLOCKED_FRAMES_THRESHOLD) {
+      return
+    }
+
+    const blockedTarget = this.touchMoveTargetTile
+    this.clearTouchMoveTarget()
+    if (blockedTarget) {
+      this.flashTouchMoveIndicator(blockedTarget.x, blockedTarget.y, true)
+    }
+    this.showInteractionFeedback('Path is blocked. Tap another tile.', FEEDBACK_COLOR_ERROR)
+    this.setPlayerIdlePose()
+  }
+
+  private movePlayerInDirection(
+    contract: RanchMapContract,
+    direction: Phaser.Math.Vector2,
+    distance: number,
+    source: MovementInputSource,
+  ): boolean {
+    if (!this.player) {
+      return false
+    }
+
+    if (!Number.isFinite(distance) || distance <= 0 || direction.lengthSq() === 0) {
+      return false
+    }
+
+    const normalizedDirection = direction.clone().normalize()
+    this.playerFacing = this.resolveFacing(normalizedDirection.x, normalizedDirection.y)
     const animationKey = this.getWalkAnimationKey(this.playerFacing)
     if (this.player.anims.currentAnim?.key !== animationKey) {
       this.player.play(animationKey, true)
     }
 
-    const direction = new Phaser.Math.Vector2(axisX, axisY).normalize()
-    const distance = PLAYER_MOVE_SPEED * (deltaMs / 1000)
     const worldSize = getRanchMapWorldSize(contract)
     const radius = contract.tileSize * PLAYER_COLLISION_RADIUS_FACTOR
     const previousX = this.player.x
     const previousY = this.player.y
 
     const targetX = Phaser.Math.Clamp(
-      this.player.x + direction.x * distance,
+      this.player.x + normalizedDirection.x * distance,
       radius,
       worldSize.width - radius,
     )
     const targetY = Phaser.Math.Clamp(
-      this.player.y + direction.y * distance,
+      this.player.y + normalizedDirection.y * distance,
       radius,
       worldSize.height - radius,
     )
@@ -1038,15 +1286,36 @@ export class RanchScene extends Phaser.Scene {
     }
 
     this.player.setPosition(resolvedX, resolvedY)
-    if (resolvedX !== previousX || resolvedY !== previousY) {
-      const services = getGameServices(this)
-      services.firstSessionFunnel.trackMove({
-        scene: this.scene.key,
-        source: 'keyboard',
-        tileX: Math.floor(resolvedX / contract.tileSize),
-        tileY: Math.floor(resolvedY / contract.tileSize),
-      })
+    const moved = resolvedX !== previousX || resolvedY !== previousY
+    if (moved) {
+      this.trackMoveMilestone(source, contract, resolvedX, resolvedY)
     }
+
+    return moved
+  }
+
+  private trackMoveMilestone(
+    source: MovementInputSource,
+    contract: RanchMapContract,
+    resolvedX: number,
+    resolvedY: number,
+  ): void {
+    const services = getGameServices(this)
+    services.firstSessionFunnel.trackMove({
+      scene: this.scene.key,
+      source,
+      tileX: Math.floor(resolvedX / contract.tileSize),
+      tileY: Math.floor(resolvedY / contract.tileSize),
+    })
+  }
+
+  private setPlayerIdlePose(): void {
+    if (!this.player) {
+      return
+    }
+
+    this.player.anims.stop()
+    this.player.setFrame(this.getIdleFrame(this.playerFacing))
   }
 
   private isAnyKeyDown(
@@ -1158,6 +1427,27 @@ export class RanchScene extends Phaser.Scene {
       .setVisible(false)
 
     this.mapRoot.add(this.interactionHighlight)
+  }
+
+  private createTouchMoveIndicator(): void {
+    if (!this.mapRoot) {
+      return
+    }
+
+    this.touchMoveIndicator = this.add
+      .rectangle(
+        ranchMapContract.tileSize * 0.5,
+        ranchMapContract.tileSize * 0.5,
+        ranchMapContract.tileSize,
+        ranchMapContract.tileSize,
+        TOUCH_MOVE_TARGET_COLOR,
+        0.2,
+      )
+      .setOrigin(0.5)
+      .setStrokeStyle(1, TOUCH_MOVE_TARGET_STROKE_COLOR, 0.9)
+      .setDepth(8)
+      .setVisible(false)
+    this.mapRoot.add(this.touchMoveIndicator)
   }
 
   private createInteractionUi(): void {
