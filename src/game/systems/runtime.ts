@@ -25,10 +25,18 @@ import {
   getUpgradeMaxLevel,
   normalizeUpgradeLevels,
   resolveUpgradeEffects,
+  upgradeIds,
   type UpgradeEffectSnapshot,
   type UpgradeId,
   type UpgradeLevels,
 } from '../config/upgrades'
+import {
+  getReturnObjectiveConfig,
+  isReturnObjectiveId,
+  returnObjectiveConfigs,
+  type ReturnObjectiveId,
+  type ReturnObjectiveMetric,
+} from '../config/returnObjectives'
 import { PLAYABLE_SCENES, SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { PerformanceTracker } from './performance'
 import {
@@ -47,8 +55,11 @@ import {
   type SaveAnimalStateV1,
   type SaveCropStateV1,
   type SaveFtueStateV1,
+  type SaveProgressionStateV1,
+  type SaveReturnObjectiveStateV1,
   type SaveStateV1,
   createDefaultFtueSaveState,
+  createDefaultReturnObjectiveSaveState,
 } from './save/schema'
 import type { TelemetryClient, TelemetryPayload } from './telemetry'
 
@@ -63,6 +74,8 @@ const RANCH_CROPS_REGISTRY_KEY = 'tiny-ranch:ranch-crops'
 const RANCH_ANIMALS_REGISTRY_KEY = 'tiny-ranch:ranch-animals'
 const FTUE_STATE_REGISTRY_KEY = 'tiny-ranch:ftue-state'
 const FTUE_CHANGED_EVENT = 'tiny-ranch:ftue-changed'
+const RETURN_OBJECTIVE_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-state'
+const RETURN_OBJECTIVE_CHANGED_EVENT = 'tiny-ranch:return-objective-changed'
 const EXPANSION_TIER_REGISTRY_KEY = 'tiny-ranch:expansion-tier'
 const EXPANSION_TIER_CHANGED_EVENT = 'tiny-ranch:expansion-tier-changed'
 const UPGRADE_LEVELS_REGISTRY_KEY = 'tiny-ranch:upgrade-levels'
@@ -96,6 +109,29 @@ export interface FtueStateSnapshot {
   currentStep: FtueStepId | null
   completedAtEpochMs: number | null
   isCompleted: boolean
+}
+
+export interface ReturnObjectiveStateSnapshot {
+  activeObjectiveId: ReturnObjectiveId | null
+  goalId: string | null
+  title: string | null
+  metric: ReturnObjectiveMetric | null
+  targetValue: number
+  rewardAmount: number
+  progressValue: number
+  assignedAtEpochMs: number | null
+  completedAtEpochMs: number | null
+  claimedAtEpochMs: number | null
+  assignmentCycle: number
+  isCompleted: boolean
+  isClaimed: boolean
+}
+
+export interface ReturnObjectiveClaimResult {
+  result: 'claimed' | 'not_completed' | 'already_claimed' | 'no_active_objective'
+  rewardAmount: number
+  balance: CurrencyBalance
+  state: ReturnObjectiveStateSnapshot
 }
 
 export interface ExpansionStateSnapshot {
@@ -135,6 +171,7 @@ export type InventoryChangeListener = (
 ) => void
 export type CurrencyChangeListener = (balance: CurrencyBalance, change: CurrencyChange) => void
 export type FtueStateChangeListener = (state: FtueStateSnapshot) => void
+export type ReturnObjectiveStateChangeListener = (state: ReturnObjectiveStateSnapshot) => void
 export type ExpansionStateChangeListener = (state: ExpansionStateSnapshot) => void
 export type UpgradeStateChangeListener = (state: UpgradeStateSnapshot) => void
 
@@ -211,6 +248,14 @@ export interface GameServices {
   getFtueStateSnapshot: () => FtueStateSnapshot
   advanceFtue: (signal: FtueProgressSignal) => FtueStateSnapshot
   onFtueStateChanged: (listener: FtueStateChangeListener) => () => void
+  getReturnObjectiveStateSnapshot: () => ReturnObjectiveStateSnapshot
+  progressReturnObjective: (
+    metric: ReturnObjectiveMetric,
+    amount?: number,
+    source?: string,
+  ) => ReturnObjectiveStateSnapshot
+  claimReturnObjectiveReward: (source?: string) => ReturnObjectiveClaimResult
+  onReturnObjectiveStateChanged: (listener: ReturnObjectiveStateChangeListener) => () => void
   getRanchStateSnapshot: () => RanchStateSnapshot
   setRanchStateSnapshot: (snapshot: RanchStateSnapshot) => void
   getPendingReturnSessionSummary: () => ReturnSessionSummary | null
@@ -357,6 +402,135 @@ function normalizeInventorySnapshot(inventory: Record<string, number>): Record<s
   return normalized
 }
 
+function normalizeNullableTimestamp(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (!isNonNegativeInteger(value)) {
+    return null
+  }
+
+  return value
+}
+
+function normalizeReturnObjectiveState(state: SaveReturnObjectiveStateV1): SaveReturnObjectiveStateV1 {
+  const assignmentCycle = isNonNegativeInteger(state.assignmentCycle) ? state.assignmentCycle : 0
+  const activeObjectiveId = isReturnObjectiveId(state.activeObjectiveId)
+    ? state.activeObjectiveId
+    : null
+
+  if (activeObjectiveId === null) {
+    return {
+      activeObjectiveId: null,
+      progressValue: 0,
+      assignedAtEpochMs: null,
+      completedAtEpochMs: null,
+      claimedAtEpochMs: null,
+      assignmentCycle,
+    }
+  }
+
+  const objectiveConfig = getReturnObjectiveConfig(activeObjectiveId)
+  const progressValue = isNonNegativeInteger(state.progressValue)
+    ? Math.min(state.progressValue, objectiveConfig.targetValue)
+    : 0
+  const assignedAtEpochMs = normalizeNullableTimestamp(state.assignedAtEpochMs)
+  const claimedAtEpochMs = normalizeNullableTimestamp(state.claimedAtEpochMs)
+  const completedAtEpochMs = normalizeNullableTimestamp(state.completedAtEpochMs) ?? claimedAtEpochMs
+
+  return {
+    activeObjectiveId,
+    progressValue,
+    assignedAtEpochMs,
+    completedAtEpochMs,
+    claimedAtEpochMs,
+    assignmentCycle,
+  }
+}
+
+function resolveReturnObjectiveSeed(progression: SaveProgressionStateV1): number {
+  let seed = progression.expansionTier * 17
+
+  for (let index = 0; index < upgradeIds.length; index += 1) {
+    const upgradeId = upgradeIds[index]
+    const level = progression.upgrades[upgradeId] ?? 0
+    seed += level * (index + 3) * 11
+  }
+
+  for (const char of progression.activeSeedId) {
+    seed += char.charCodeAt(0)
+  }
+
+  return Math.max(0, seed)
+}
+
+function resolveDeterministicReturnObjectiveId(
+  progression: SaveProgressionStateV1,
+  assignmentCycle: number,
+): ReturnObjectiveId {
+  const configCount = returnObjectiveConfigs.length
+  const normalizedCycle = isNonNegativeInteger(assignmentCycle) ? assignmentCycle : 0
+  const index = (resolveReturnObjectiveSeed(progression) + normalizedCycle) % configCount
+  const objective = returnObjectiveConfigs[index]
+  if (!objective) {
+    throw new Error('Failed to resolve deterministic return objective')
+  }
+
+  return objective.id
+}
+
+function createEmptyReturnObjectiveSnapshot(
+  assignmentCycle: number,
+): ReturnObjectiveStateSnapshot {
+  return {
+    activeObjectiveId: null,
+    goalId: null,
+    title: null,
+    metric: null,
+    targetValue: 0,
+    rewardAmount: 0,
+    progressValue: 0,
+    assignedAtEpochMs: null,
+    completedAtEpochMs: null,
+    claimedAtEpochMs: null,
+    assignmentCycle,
+    isCompleted: false,
+    isClaimed: false,
+  }
+}
+
+function buildReturnObjectiveSnapshot(
+  state: SaveReturnObjectiveStateV1,
+): ReturnObjectiveStateSnapshot {
+  const normalized = normalizeReturnObjectiveState(state)
+  if (normalized.activeObjectiveId === null) {
+    return createEmptyReturnObjectiveSnapshot(normalized.assignmentCycle)
+  }
+
+  const objectiveConfig = getReturnObjectiveConfig(normalized.activeObjectiveId)
+  const progressValue = Math.min(normalized.progressValue, objectiveConfig.targetValue)
+  const isCompleted =
+    normalized.completedAtEpochMs !== null || progressValue >= objectiveConfig.targetValue
+  const isClaimed = normalized.claimedAtEpochMs !== null
+
+  return {
+    activeObjectiveId: normalized.activeObjectiveId,
+    goalId: objectiveConfig.goalId,
+    title: objectiveConfig.title,
+    metric: objectiveConfig.metric,
+    targetValue: objectiveConfig.targetValue,
+    rewardAmount: objectiveConfig.rewardAmount,
+    progressValue,
+    assignedAtEpochMs: normalized.assignedAtEpochMs,
+    completedAtEpochMs: normalized.completedAtEpochMs,
+    claimedAtEpochMs: normalized.claimedAtEpochMs,
+    assignmentCycle: normalized.assignmentCycle,
+    isCompleted,
+    isClaimed,
+  }
+}
+
 function resolveSaveAgeBucket(savedAtEpochMs: number): SaveAgeBucket {
   const ageMs = Math.max(0, Date.now() - savedAtEpochMs)
 
@@ -421,6 +595,7 @@ export function createGameServices(
     game.registry.set(RANCH_CROPS_REGISTRY_KEY, [])
     game.registry.set(RANCH_ANIMALS_REGISTRY_KEY, [])
     game.registry.set(FTUE_STATE_REGISTRY_KEY, createDefaultFtueSaveState())
+    game.registry.set(RETURN_OBJECTIVE_STATE_REGISTRY_KEY, createDefaultReturnObjectiveSaveState())
     game.registry.set(EXPANSION_TIER_REGISTRY_KEY, getDefaultExpansionTier())
     game.registry.set(UPGRADE_LEVELS_REGISTRY_KEY, createDefaultUpgradeLevels())
     game.registry.set(ACTIVE_SCENE_REGISTRY_KEY, null)
@@ -521,6 +696,101 @@ export function createGameServices(
     }
   }
 
+  const readReturnObjectiveState = (): SaveReturnObjectiveStateV1 => {
+    const rawState = game.registry.get(RETURN_OBJECTIVE_STATE_REGISTRY_KEY)
+    if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+      return createDefaultReturnObjectiveSaveState()
+    }
+
+    const state = rawState as Partial<SaveReturnObjectiveStateV1>
+    return normalizeReturnObjectiveState({
+      activeObjectiveId: state.activeObjectiveId ?? null,
+      progressValue: state.progressValue ?? 0,
+      assignedAtEpochMs: state.assignedAtEpochMs ?? null,
+      completedAtEpochMs: state.completedAtEpochMs ?? null,
+      claimedAtEpochMs: state.claimedAtEpochMs ?? null,
+      assignmentCycle: state.assignmentCycle ?? 0,
+    })
+  }
+
+  const getReturnObjectiveStateSnapshot = (): ReturnObjectiveStateSnapshot => {
+    return buildReturnObjectiveSnapshot(readReturnObjectiveState())
+  }
+
+  const readProgressionStateForObjectiveAssignment = (): SaveProgressionStateV1 => {
+    return {
+      activeScene: null,
+      activeSeedId: readRanchStateSnapshot().activeSeedId,
+      expansionTier: readExpansionTier(),
+      upgrades: readUpgradeLevels(),
+    }
+  }
+
+  const setReturnObjectiveState = (
+    state: SaveReturnObjectiveStateV1,
+    options: {
+      emitChangedEvent?: boolean
+      persist?: boolean
+    } = {},
+  ): ReturnObjectiveStateSnapshot => {
+    const normalized = normalizeReturnObjectiveState(state)
+    game.registry.set(RETURN_OBJECTIVE_STATE_REGISTRY_KEY, normalized)
+    const snapshot = buildReturnObjectiveSnapshot(normalized)
+
+    if (options.emitChangedEvent !== false) {
+      game.events.emit(RETURN_OBJECTIVE_CHANGED_EVENT, snapshot)
+    }
+
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
+
+    return snapshot
+  }
+
+  const assignDeterministicReturnObjective = (source: string): ReturnObjectiveStateSnapshot => {
+    const now = Date.now()
+    const currentState = readReturnObjectiveState()
+    const progression = readProgressionStateForObjectiveAssignment()
+    const nextObjectiveId = resolveDeterministicReturnObjectiveId(
+      progression,
+      currentState.assignmentCycle,
+    )
+    const objectiveConfig = getReturnObjectiveConfig(nextObjectiveId)
+
+    const nextState: SaveReturnObjectiveStateV1 = {
+      activeObjectiveId: nextObjectiveId,
+      progressValue: 0,
+      assignedAtEpochMs: now,
+      completedAtEpochMs: null,
+      claimedAtEpochMs: null,
+      assignmentCycle: currentState.assignmentCycle,
+    }
+    const snapshot = setReturnObjectiveState(nextState)
+
+    telemetry.track('return_objective_assigned', {
+      objectiveId: objectiveConfig.id,
+      goalId: objectiveConfig.goalId,
+      metric: objectiveConfig.metric,
+      targetValue: objectiveConfig.targetValue,
+      rewardAmount: objectiveConfig.rewardAmount,
+      assignmentCycle: nextState.assignmentCycle,
+      source: source.trim().length > 0 ? source.trim() : 'unspecified',
+      eventTimestampMs: now,
+    })
+
+    return snapshot
+  }
+
+  const ensureReturnObjectiveAssignedForSession = (source: string): ReturnObjectiveStateSnapshot => {
+    const currentState = readReturnObjectiveState()
+    if (currentState.activeObjectiveId && currentState.claimedAtEpochMs === null) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
+    return assignDeterministicReturnObjective(source)
+  }
+
   const resolveCohort = (): 'mobile_web' | 'desktop_web' => {
     const touchEnabled = game.device.input.touch
     const narrowViewport = game.scale.width <= 768
@@ -599,6 +869,7 @@ export function createGameServices(
   const buildSaveStateSnapshot = (): SaveStateV1 => {
     const ranchSnapshot = readRanchStateSnapshot()
     const ftueState = readFtueState()
+    const returnObjectiveState = readReturnObjectiveState()
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
       metadata: {
@@ -613,6 +884,7 @@ export function createGameServices(
         upgrades: readUpgradeLevels(),
       },
       ftue: ftueState,
+      returnObjective: returnObjectiveState,
       ranch: {
         crops: ranchSnapshot.crops,
         animals: ranchSnapshot.animals,
@@ -982,12 +1254,155 @@ export function createGameServices(
     return nextSnapshot
   }
 
+  const progressReturnObjective = (
+    metric: ReturnObjectiveMetric,
+    amount: number = 1,
+    source: string = 'unspecified',
+  ): ReturnObjectiveStateSnapshot => {
+    const normalizedAmount = Math.floor(amount)
+    if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
+    const currentState = readReturnObjectiveState()
+    if (currentState.activeObjectiveId === null || currentState.claimedAtEpochMs !== null) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
+    const objectiveConfig = getReturnObjectiveConfig(currentState.activeObjectiveId)
+    if (objectiveConfig.metric !== metric) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
+    const progressBefore = currentState.progressValue
+    const progressAfter = Math.min(objectiveConfig.targetValue, progressBefore + normalizedAmount)
+    if (progressAfter === progressBefore) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
+    const now = Date.now()
+    const completedAtEpochMs =
+      currentState.completedAtEpochMs === null && progressAfter >= objectiveConfig.targetValue
+        ? now
+        : currentState.completedAtEpochMs
+
+    const nextState: SaveReturnObjectiveStateV1 = {
+      ...currentState,
+      progressValue: progressAfter,
+      completedAtEpochMs,
+    }
+    const nextSnapshot = setReturnObjectiveState(nextState)
+
+    telemetry.track('return_objective_progressed', {
+      objectiveId: objectiveConfig.id,
+      goalId: objectiveConfig.goalId,
+      metric: objectiveConfig.metric,
+      progressBefore,
+      progressAfter,
+      targetValue: objectiveConfig.targetValue,
+      amount: normalizedAmount,
+      source: source.trim().length > 0 ? source.trim() : 'unspecified',
+      eventTimestampMs: now,
+    })
+
+    if (currentState.completedAtEpochMs === null && completedAtEpochMs !== null) {
+      telemetry.track('return_objective_completed', {
+        objectiveId: objectiveConfig.id,
+        goalId: objectiveConfig.goalId,
+        metric: objectiveConfig.metric,
+        targetValue: objectiveConfig.targetValue,
+        rewardAmount: objectiveConfig.rewardAmount,
+        progressValue: progressAfter,
+        eventTimestampMs: now,
+      })
+    }
+
+    return nextSnapshot
+  }
+
+  const claimReturnObjectiveReward = (
+    source: string = 'unspecified',
+  ): ReturnObjectiveClaimResult => {
+    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const currentState = readReturnObjectiveState()
+    const currentSnapshot = buildReturnObjectiveSnapshot(currentState)
+
+    if (currentState.activeObjectiveId === null) {
+      return {
+        result: 'no_active_objective',
+        rewardAmount: 0,
+        balance: getCurrencyBalance(),
+        state: currentSnapshot,
+      }
+    }
+
+    const objectiveConfig = getReturnObjectiveConfig(currentState.activeObjectiveId)
+    const isCompleted =
+      currentState.completedAtEpochMs !== null ||
+      currentState.progressValue >= objectiveConfig.targetValue
+
+    if (currentState.claimedAtEpochMs !== null) {
+      return {
+        result: 'already_claimed',
+        rewardAmount: objectiveConfig.rewardAmount,
+        balance: getCurrencyBalance(),
+        state: currentSnapshot,
+      }
+    }
+
+    if (!isCompleted) {
+      return {
+        result: 'not_completed',
+        rewardAmount: objectiveConfig.rewardAmount,
+        balance: getCurrencyBalance(),
+        state: currentSnapshot,
+      }
+    }
+
+    const now = Date.now()
+    setReturnObjectiveState({
+      ...currentState,
+      completedAtEpochMs: currentState.completedAtEpochMs ?? now,
+      claimedAtEpochMs: now,
+      assignmentCycle: currentState.assignmentCycle + 1,
+    })
+
+    const balance = addCurrency(
+      objectiveConfig.rewardAmount,
+      `return_objective_claim:${objectiveConfig.id}`,
+    )
+
+    telemetry.track('return_objective_claimed', {
+      objectiveId: objectiveConfig.id,
+      goalId: objectiveConfig.goalId,
+      metric: objectiveConfig.metric,
+      targetValue: objectiveConfig.targetValue,
+      rewardAmount: objectiveConfig.rewardAmount,
+      balance,
+      source: normalizedSource,
+      eventTimestampMs: now,
+    })
+
+    const nextState = assignDeterministicReturnObjective(`claim:${normalizedSource}`)
+
+    return {
+      result: 'claimed',
+      rewardAmount: objectiveConfig.rewardAmount,
+      balance,
+      state: nextState,
+    }
+  }
+
   const applyHydratedSaveState = (saveState: SaveStateV1): void => {
     suppressSaveWrites = true
     try {
       game.registry.set(INVENTORY_REGISTRY_KEY, normalizeInventorySnapshot({ ...saveState.inventory }))
       game.registry.set(CURRENCY_REGISTRY_KEY, Math.floor(saveState.currency))
       game.registry.set(FTUE_STATE_REGISTRY_KEY, normalizeFtueState(saveState.ftue))
+      game.registry.set(
+        RETURN_OBJECTIVE_STATE_REGISTRY_KEY,
+        normalizeReturnObjectiveState(saveState.returnObjective),
+      )
       game.registry.set(
         EXPANSION_TIER_REGISTRY_KEY,
         clampExpansionTier(saveState.progression.expansionTier),
@@ -1086,6 +1501,7 @@ export function createGameServices(
       const nowEpochMs = Date.now()
       const catchUpResult = applyOfflineProgressCatchUp(readResult.state, nowEpochMs)
       applyHydratedSaveState(catchUpResult.saveState)
+      ensureReturnObjectiveAssignedForSession('boot_hydration')
       pendingReturnSessionSummary = catchUpResult.summary
       telemetry.track('save_load_success', buildSaveAnalyticsMetadata(catchUpResult.saveState))
       bootHydrationResult = {
@@ -1230,6 +1646,19 @@ export function createGameServices(
     }
   }
 
+  const onReturnObjectiveStateChanged = (
+    listener: ReturnObjectiveStateChangeListener,
+  ): (() => void) => {
+    const handler = (snapshot: ReturnObjectiveStateSnapshot): void => {
+      listener(snapshot)
+    }
+
+    game.events.on(RETURN_OBJECTIVE_CHANGED_EVENT, handler)
+    return () => {
+      game.events.off(RETURN_OBJECTIVE_CHANGED_EVENT, handler)
+    }
+  }
+
   const setActiveScene = (sceneKey: PlayableSceneKey): void => {
     const currentScene = getActiveScene()
 
@@ -1297,6 +1726,10 @@ export function createGameServices(
     getFtueStateSnapshot,
     advanceFtue,
     onFtueStateChanged,
+    getReturnObjectiveStateSnapshot,
+    progressReturnObjective,
+    claimReturnObjectiveReward,
+    onReturnObjectiveStateChanged,
     getRanchStateSnapshot: readRanchStateSnapshot,
     setRanchStateSnapshot,
     getPendingReturnSessionSummary,

@@ -33,6 +33,7 @@ import {
   type ExpansionStateSnapshot,
   type FtueStateSnapshot,
   type RanchStateSnapshot,
+  type ReturnObjectiveStateSnapshot,
 } from '../systems/runtime'
 
 const HUD_SAFE_TOP = 72
@@ -58,6 +59,12 @@ const UPGRADE_LABEL_COLOR = '#f4efe3'
 const FTUE_LABEL_COLOR = '#f4efe3'
 const FTUE_LABEL_BG = '#10241ee0'
 const FTUE_LABEL_MAX_WIDTH = 300
+const RETURN_OBJECTIVE_LABEL_COLOR = '#d7f4ff'
+const RETURN_OBJECTIVE_LABEL_BG = '#0d2a3de0'
+const RETURN_OBJECTIVE_LABEL_MAX_WIDTH = 320
+const RETURN_OBJECTIVE_CLAIM_BUTTON_BG = '#2f5f7a'
+const RETURN_OBJECTIVE_CLAIM_BUTTON_BG_READY = '#3f8cb5'
+const RETURN_OBJECTIVE_CLAIM_BUTTON_TEXT = '#f4fbff'
 const UPGRADE_PANEL_MAX_WIDTH = 360
 const UPGRADE_PANEL_GAP = 8
 const TOUCH_MOVE_TARGET_COLOR = 0x74d5ff
@@ -155,6 +162,8 @@ export class RanchScene extends Phaser.Scene {
   private readonly upgradeEntryLabels = new Map<UpgradeId, Phaser.GameObjects.Text>()
   private upgradePanelHeight = 0
   private ftueObjectiveLabel?: Phaser.GameObjects.Text
+  private returnObjectiveLabel?: Phaser.GameObjects.Text
+  private returnObjectiveClaimButton?: Phaser.GameObjects.Text
   private cropZone: RanchZone | null = null
   private animalZone: RanchZone | null = null
   private inputPrefersTouch = false
@@ -169,6 +178,7 @@ export class RanchScene extends Phaser.Scene {
   private unsubscribeExpansionChanges?: () => void
   private unsubscribeUpgradeChanges?: () => void
   private unsubscribeFtueStateChanges?: () => void
+  private unsubscribeReturnObjectiveChanges?: () => void
   private expansionState: ExpansionStateSnapshot | null = null
   private activeInteractable: RanchInteractable | null = null
   private touchMoveTargetTile: TilePosition | null = null
@@ -185,6 +195,7 @@ export class RanchScene extends Phaser.Scene {
   private upgradeHotkeyOne?: Phaser.Input.Keyboard.Key
   private upgradeHotkeyTwo?: Phaser.Input.Keyboard.Key
   private upgradeHotkeyThree?: Phaser.Input.Keyboard.Key
+  private claimObjectiveHotkey?: Phaser.Input.Keyboard.Key
   private hasTrackedUpgradePanelView = false
 
   private readonly resizeHandler = (): void => {
@@ -197,6 +208,8 @@ export class RanchScene extends Phaser.Scene {
     this.refreshUpgradeUi()
     this.layoutFtueObjectiveUi()
     this.refreshFtueObjectiveUi()
+    this.layoutReturnObjectiveUi()
+    this.refreshReturnObjectiveUi()
     this.updateInteractionState(ranchMapContract)
   }
   private readonly visibilityChangeHandler = (): void => {
@@ -244,6 +257,7 @@ export class RanchScene extends Phaser.Scene {
     this.createCurrencyUi()
     this.createUpgradeUi()
     this.createFtueObjectiveUi()
+    this.createReturnObjectiveUi()
     this.configureInput()
     this.configurePointerInput()
 
@@ -253,6 +267,7 @@ export class RanchScene extends Phaser.Scene {
     this.layoutInventoryUi()
     this.layoutUpgradeUi()
     this.layoutFtueObjectiveUi()
+    this.layoutReturnObjectiveUi()
     const restoredSnapshot = this.hydrateRanchStateSnapshot(ranchMapContract)
     this.syncFtueProgressFromWorldState()
     this.refreshInventoryUi()
@@ -260,6 +275,7 @@ export class RanchScene extends Phaser.Scene {
     this.refreshUpgradeUi()
     this.trackUpgradePanelViewed()
     this.refreshFtueObjectiveUi()
+    this.refreshReturnObjectiveUi()
     this.refreshExpansionGatedVisuals()
     this.updateInteractionState(ranchMapContract)
     this.syncRanchStateSnapshot()
@@ -285,6 +301,9 @@ export class RanchScene extends Phaser.Scene {
     })
     this.unsubscribeFtueStateChanges = services.onFtueStateChanged((state) => {
       this.refreshFtueObjectiveUi(state)
+    })
+    this.unsubscribeReturnObjectiveChanges = services.onReturnObjectiveStateChanged((state) => {
+      this.refreshReturnObjectiveUi(state)
     })
     document.addEventListener('visibilitychange', this.visibilityChangeHandler)
     window.addEventListener('focus', this.focusHandler)
@@ -325,6 +344,8 @@ export class RanchScene extends Phaser.Scene {
       this.unsubscribeUpgradeChanges = undefined
       this.unsubscribeFtueStateChanges?.()
       this.unsubscribeFtueStateChanges = undefined
+      this.unsubscribeReturnObjectiveChanges?.()
+      this.unsubscribeReturnObjectiveChanges = undefined
       this.syncRanchStateSnapshot()
       this.collisionTiles.clear()
       this.plantedCrops.forEach((crop) => {
@@ -347,6 +368,8 @@ export class RanchScene extends Phaser.Scene {
       this.upgradePanelBg = undefined
       this.upgradePanelTitle = undefined
       this.upgradePanelHeight = 0
+      this.returnObjectiveLabel = undefined
+      this.returnObjectiveClaimButton = undefined
       this.hasTrackedUpgradePanelView = false
       this.expansionState = null
       this.cropLayer = undefined
@@ -362,6 +385,7 @@ export class RanchScene extends Phaser.Scene {
     this.updatePlayerMovement(ranchMapContract, delta)
     this.updateInteractionState(ranchMapContract)
     this.tryUpgradeHotkeys()
+    this.tryClaimReturnObjectiveHotkey()
     this.tryInteract()
   }
 
@@ -504,6 +528,47 @@ export class RanchScene extends Phaser.Scene {
       .setVisible(false)
   }
 
+  private createReturnObjectiveUi(): void {
+    this.returnObjectiveLabel = this.add
+      .text(0, 0, '', {
+        fontFamily: '"Avenir Next", "Trebuchet MS", sans-serif',
+        fontSize: '13px',
+        color: RETURN_OBJECTIVE_LABEL_COLOR,
+        backgroundColor: RETURN_OBJECTIVE_LABEL_BG,
+        lineSpacing: 3,
+      })
+      .setPadding(10, 8, 10, 8)
+      .setOrigin(0, 0)
+      .setDepth(131)
+      .setVisible(false)
+
+    this.returnObjectiveClaimButton = this.add
+      .text(0, 0, 'Claim reward', {
+        fontFamily: '"Avenir Next", "Trebuchet MS", sans-serif',
+        fontSize: '12px',
+        color: RETURN_OBJECTIVE_CLAIM_BUTTON_TEXT,
+        backgroundColor: RETURN_OBJECTIVE_CLAIM_BUTTON_BG,
+      })
+      .setPadding(10, 6, 10, 6)
+      .setOrigin(0, 0)
+      .setDepth(132)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true })
+
+    this.returnObjectiveClaimButton.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation()
+        this.tryClaimReturnObjectiveReward('pointer')
+      },
+    )
+  }
+
   private layoutFtueObjectiveUi(): void {
     if (!this.ftueObjectiveLabel) {
       return
@@ -513,6 +578,35 @@ export class RanchScene extends Phaser.Scene {
     this.ftueObjectiveLabel
       .setPosition(SCENE_PADDING, this.getFtueObjectiveTopY())
       .setWordWrapWidth(contentWidth - 20, true)
+  }
+
+  private getReturnObjectiveTopY(): number {
+    const fallbackTopY = this.getFtueObjectiveTopY()
+    if (!this.ftueObjectiveLabel || !this.ftueObjectiveLabel.visible) {
+      return fallbackTopY
+    }
+
+    return this.ftueObjectiveLabel.y + this.ftueObjectiveLabel.height + UPGRADE_PANEL_GAP
+  }
+
+  private layoutReturnObjectiveUi(): void {
+    if (!this.returnObjectiveLabel) {
+      return
+    }
+
+    const contentWidth = Math.max(200, Math.min(RETURN_OBJECTIVE_LABEL_MAX_WIDTH, this.scale.width - 24))
+    this.returnObjectiveLabel
+      .setPosition(SCENE_PADDING, this.getReturnObjectiveTopY())
+      .setWordWrapWidth(contentWidth - 20, true)
+
+    if (!this.returnObjectiveClaimButton) {
+      return
+    }
+
+    this.returnObjectiveClaimButton.setPosition(
+      SCENE_PADDING + 10,
+      this.returnObjectiveLabel.y + this.returnObjectiveLabel.height + 6,
+    )
   }
 
   private refreshFtueObjectiveUi(ftueState?: FtueStateSnapshot): void {
@@ -526,10 +620,12 @@ export class RanchScene extends Phaser.Scene {
 
     if (objectiveText === null) {
       this.ftueObjectiveLabel.setVisible(false)
+      this.layoutReturnObjectiveUi()
       return
     }
 
     this.ftueObjectiveLabel.setText(objectiveText).setVisible(true)
+    this.layoutReturnObjectiveUi()
   }
 
   private buildFtueObjectiveText(state: FtueStateSnapshot): string | null {
@@ -542,6 +638,57 @@ export class RanchScene extends Phaser.Scene {
     const inputHint = this.inputPrefersTouch ? currentStep.touchHint : currentStep.keyboardHint
 
     return `Objective ${stepIndex + 1}/${ftueConfig.steps.length}\n${currentStep.title}\n${inputHint}`
+  }
+
+  private refreshReturnObjectiveUi(state?: ReturnObjectiveStateSnapshot): void {
+    if (!this.returnObjectiveLabel || !this.returnObjectiveClaimButton) {
+      return
+    }
+
+    const services = getGameServices(this)
+    const activeState = state ?? services.getReturnObjectiveStateSnapshot()
+    const objectiveText = this.buildReturnObjectiveText(activeState)
+
+    if (objectiveText === null) {
+      this.returnObjectiveLabel.setVisible(false)
+      this.returnObjectiveClaimButton.setVisible(false).disableInteractive()
+      return
+    }
+
+    this.returnObjectiveLabel.setText(objectiveText).setVisible(true)
+    const canClaim = activeState.isCompleted && !activeState.isClaimed
+    const claimButtonLabel = canClaim
+      ? `Claim +${activeState.rewardAmount} coins`
+      : 'Claim reward (locked)'
+    const claimButtonBg = canClaim
+      ? RETURN_OBJECTIVE_CLAIM_BUTTON_BG_READY
+      : RETURN_OBJECTIVE_CLAIM_BUTTON_BG
+    this.returnObjectiveClaimButton
+      .setText(claimButtonLabel)
+      .setStyle({
+        backgroundColor: claimButtonBg,
+      })
+      .setAlpha(canClaim ? 1 : 0.7)
+      .setVisible(true)
+
+    if (canClaim) {
+      this.returnObjectiveClaimButton.setInteractive({ useHandCursor: true })
+    } else {
+      this.returnObjectiveClaimButton.disableInteractive()
+    }
+
+    this.layoutReturnObjectiveUi()
+  }
+
+  private buildReturnObjectiveText(state: ReturnObjectiveStateSnapshot): string | null {
+    if (!state.activeObjectiveId || !state.title || !state.metric) {
+      return null
+    }
+
+    const metricLabel = state.metric === 'harvest_count' ? 'Harvest progress' : 'Sell value progress'
+    const statusLabel = state.isCompleted ? 'Complete: claim your reward.' : 'In progress.'
+
+    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\nReward: +${state.rewardAmount} coins\n${statusLabel}`
   }
 
   private buildRanchStateSnapshot(): RanchStateSnapshot {
@@ -738,6 +885,7 @@ export class RanchScene extends Phaser.Scene {
     this.upgradeHotkeyOne = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ONE)
     this.upgradeHotkeyTwo = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.TWO)
     this.upgradeHotkeyThree = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.THREE)
+    this.claimObjectiveHotkey = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C)
   }
 
   private configurePointerInput(): void {
@@ -1575,6 +1723,7 @@ export class RanchScene extends Phaser.Scene {
 
     this.layoutUpgradeUi()
     this.layoutFtueObjectiveUi()
+    this.layoutReturnObjectiveUi()
   }
 
   private trackUpgradePanelViewed(): void {
@@ -1611,6 +1760,14 @@ export class RanchScene extends Phaser.Scene {
     this.tryPurchaseUpgradeByKey(0, this.upgradeHotkeyOne)
     this.tryPurchaseUpgradeByKey(1, this.upgradeHotkeyTwo)
     this.tryPurchaseUpgradeByKey(2, this.upgradeHotkeyThree)
+  }
+
+  private tryClaimReturnObjectiveHotkey(): void {
+    if (!this.isJustPressed(this.claimObjectiveHotkey)) {
+      return
+    }
+
+    this.tryClaimReturnObjectiveReward('keyboard')
   }
 
   private tryPurchaseUpgradeByKey(index: number, key?: Phaser.Input.Keyboard.Key): void {
@@ -1666,6 +1823,36 @@ export class RanchScene extends Phaser.Scene {
 
     this.showInteractionFeedback(`${config.label} is already maxed.`, FEEDBACK_COLOR_DEFAULT)
     this.refreshUpgradeUi()
+  }
+
+  private tryClaimReturnObjectiveReward(source: 'keyboard' | 'pointer'): void {
+    const services = getGameServices(this)
+    const claim = services.claimReturnObjectiveReward(`ranch:${source}`)
+
+    if (claim.result === 'claimed') {
+      this.showInteractionFeedback(
+        `Objective claimed. +${claim.rewardAmount} coins.`,
+        FEEDBACK_COLOR_SUCCESS,
+      )
+      this.refreshCurrencyUi()
+      this.refreshReturnObjectiveUi(claim.state)
+      return
+    }
+
+    if (claim.result === 'not_completed') {
+      this.showInteractionFeedback('Objective is not complete yet.', FEEDBACK_COLOR_ERROR)
+      this.refreshReturnObjectiveUi(claim.state)
+      return
+    }
+
+    if (claim.result === 'already_claimed') {
+      this.showInteractionFeedback('Objective reward was already claimed.', FEEDBACK_COLOR_DEFAULT)
+      this.refreshReturnObjectiveUi(claim.state)
+      return
+    }
+
+    this.showInteractionFeedback('No return objective is active yet.', FEEDBACK_COLOR_DEFAULT)
+    this.refreshReturnObjectiveUi(claim.state)
   }
 
   private getInventorySummaryText(inventory: Readonly<Record<string, number>>): string {
@@ -2526,6 +2713,7 @@ export class RanchScene extends Phaser.Scene {
       quantity: 1,
       inventoryTotal,
     })
+    services.progressReturnObjective('harvest_count', 1, `ranch:crop_harvest:${inputSource}`)
     this.advanceFtue('harvest')
   }
 
@@ -2688,6 +2876,7 @@ export class RanchScene extends Phaser.Scene {
       eventTimestampMs: Date.now(),
     })
     if (result === 'sold') {
+      services.progressReturnObjective('sell_value', totalRevenue, `ranch:inventory_sold:${inputSource}`)
       services.firstSessionFunnel.trackSale({
         scene: this.scene.key,
         source: inputSource,

@@ -1,6 +1,7 @@
 import { animalProductionConfigs, type AnimalProductionId } from '../../config/animals'
 import { cropSeedConfigs, type CropSeedId } from '../../config/crops'
 import { getFirstFtueStepId, isFtueStepId, type FtueStepId } from '../../config/ftue'
+import { isReturnObjectiveId, type ReturnObjectiveId } from '../../config/returnObjectives'
 import {
   clampExpansionTier,
   getDefaultExpansionTier,
@@ -55,6 +56,15 @@ export interface SaveFtueStateV1 {
   completedAtEpochMs: number | null
 }
 
+export interface SaveReturnObjectiveStateV1 {
+  activeObjectiveId: ReturnObjectiveId | null
+  progressValue: number
+  assignedAtEpochMs: number | null
+  completedAtEpochMs: number | null
+  claimedAtEpochMs: number | null
+  assignmentCycle: number
+}
+
 export interface SaveStateV1 {
   schemaVersion: typeof SAVE_SCHEMA_VERSION
   metadata: SaveMetadataV1
@@ -62,6 +72,7 @@ export interface SaveStateV1 {
   inventory: Record<string, number>
   progression: SaveProgressionStateV1
   ftue: SaveFtueStateV1
+  returnObjective: SaveReturnObjectiveStateV1
   ranch: {
     crops: SaveCropStateV1[]
     animals: SaveAnimalStateV1[]
@@ -290,6 +301,17 @@ export function createDefaultFtueSaveState(): SaveFtueStateV1 {
   }
 }
 
+export function createDefaultReturnObjectiveSaveState(): SaveReturnObjectiveStateV1 {
+  return {
+    activeObjectiveId: null,
+    progressValue: 0,
+    assignedAtEpochMs: null,
+    completedAtEpochMs: null,
+    claimedAtEpochMs: null,
+    assignmentCycle: 0,
+  }
+}
+
 function decodeFtue(value: unknown): SaveFtueStateV1 | null {
   if (value === undefined) {
     return createDefaultFtueSaveState()
@@ -310,6 +332,66 @@ function decodeFtue(value: unknown): SaveFtueStateV1 | null {
   return {
     currentStep: value.currentStep,
     completedAtEpochMs: value.currentStep === null ? value.completedAtEpochMs : null,
+  }
+}
+
+function decodeReturnObjective(value: unknown): SaveReturnObjectiveStateV1 | null {
+  if (value === undefined) {
+    return createDefaultReturnObjectiveSaveState()
+  }
+
+  if (!isObject(value)) {
+    return null
+  }
+
+  if (!(value.activeObjectiveId === null || isReturnObjectiveId(value.activeObjectiveId))) {
+    return null
+  }
+
+  const progressValue = value.progressValue === undefined ? 0 : value.progressValue
+  if (!isNonNegativeInteger(progressValue)) {
+    return null
+  }
+
+  const assignedAtEpochMs = value.assignedAtEpochMs === undefined ? null : value.assignedAtEpochMs
+  if (!isNullableNonNegativeInteger(assignedAtEpochMs)) {
+    return null
+  }
+
+  const completedAtEpochMs =
+    value.completedAtEpochMs === undefined ? null : value.completedAtEpochMs
+  if (!isNullableNonNegativeInteger(completedAtEpochMs)) {
+    return null
+  }
+
+  const claimedAtEpochMs = value.claimedAtEpochMs === undefined ? null : value.claimedAtEpochMs
+  if (!isNullableNonNegativeInteger(claimedAtEpochMs)) {
+    return null
+  }
+
+  const assignmentCycle = value.assignmentCycle === undefined ? 0 : value.assignmentCycle
+  if (!isNonNegativeInteger(assignmentCycle)) {
+    return null
+  }
+
+  if (value.activeObjectiveId === null) {
+    return {
+      activeObjectiveId: null,
+      progressValue: 0,
+      assignedAtEpochMs: null,
+      completedAtEpochMs: null,
+      claimedAtEpochMs: null,
+      assignmentCycle,
+    }
+  }
+
+  return {
+    activeObjectiveId: value.activeObjectiveId,
+    progressValue,
+    assignedAtEpochMs,
+    completedAtEpochMs,
+    claimedAtEpochMs,
+    assignmentCycle,
   }
 }
 
@@ -395,6 +477,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
   const inventory = decodeInventory(payload.inventory)
   const progression = decodeProgression(payload.progression)
   const ftue = decodeFtue(payload.ftue)
+  const returnObjective = decodeReturnObjective(payload.returnObjective)
   const ranch = decodeRanchState(payload.ranch)
 
   if (!isNonNegativeInteger(payload.currency)) {
@@ -407,7 +490,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
     }
   }
 
-  if (!metadata || !inventory || !progression || !ftue || !ranch) {
+  if (!metadata || !inventory || !progression || !ftue || !returnObjective || !ranch) {
     return {
       ok: false,
       error: {
@@ -426,6 +509,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
       inventory,
       progression,
       ftue,
+      returnObjective,
       ranch,
     },
   }
