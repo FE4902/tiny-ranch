@@ -14,6 +14,8 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000
 const POLL_INTERVAL_MS = 50
 const SMOKE_TILE = Object.freeze({ x: 3, y: 10 })
 const EXPANSION_WELL_INTERACTABLE_ID = 'zone:utility_well'
+const DEFAULT_LONG_FRAME_THRESHOLD_MS = 50
+const MAX_FRAME_HEALTH_SAMPLE_COUNT = 20_000
 
 type InputSource = 'keyboard' | 'pointer'
 type SellPointId = 'shipping_crate' | 'market_stall' | 'unknown'
@@ -65,6 +67,20 @@ interface ScreenPoint {
   y: number
 }
 
+interface FrameHealthSamplingOptions {
+  longFrameThresholdMs?: number
+}
+
+interface FrameHealthMetrics {
+  sampleCount: number
+  sampledDurationMs: number
+  averageFrameDurationMs: number
+  p95FrameDurationMs: number
+  maxFrameDurationMs: number
+  longFrameCount: number
+  longFrameThresholdMs: number
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
@@ -73,6 +89,8 @@ interface TinyRanchSmokeHarness {
   debugGetPlantedCropTiles(): Array<{ x: number; y: number }>
   debugForceCropToMature(tileX: number, tileY: number): void
   debugSeedInventory(itemId: string, quantity: number): void
+  startFrameHealthSampling(options?: FrameHealthSamplingOptions): void
+  stopFrameHealthSampling(): FrameHealthMetrics
 }
 
 type SmokeWindow = Window & {
@@ -218,6 +236,100 @@ function debugSeedInventory(game: Phaser.Game, itemId: string, quantity: number)
   services.addInventoryItem(itemId, Math.floor(quantity))
 }
 
+class FrameHealthSampler {
+  private readonly frameDurationsMs: number[] = []
+  private longFrameThresholdMs = DEFAULT_LONG_FRAME_THRESHOLD_MS
+  private firstFrameTimestamp: number | null = null
+  private lastFrameTimestamp: number | null = null
+  private rafId: number | null = null
+  private running = false
+
+  start(options: FrameHealthSamplingOptions = {}): void {
+    if (this.running) {
+      throw new Error('Frame health sampling is already running.')
+    }
+
+    const thresholdMs = options.longFrameThresholdMs ?? DEFAULT_LONG_FRAME_THRESHOLD_MS
+    if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) {
+      throw new Error('Frame health long-frame threshold must be a positive number.')
+    }
+
+    this.frameDurationsMs.length = 0
+    this.longFrameThresholdMs = thresholdMs
+    this.firstFrameTimestamp = null
+    this.lastFrameTimestamp = null
+    this.running = true
+    this.rafId = window.requestAnimationFrame(this.collectFrameSample)
+  }
+
+  stop(): FrameHealthMetrics {
+    if (!this.running) {
+      throw new Error('Frame health sampling is not running.')
+    }
+
+    this.running = false
+    if (this.rafId !== null) {
+      window.cancelAnimationFrame(this.rafId)
+      this.rafId = null
+    }
+
+    return this.buildMetrics()
+  }
+
+  private readonly collectFrameSample = (timestamp: number): void => {
+    if (!this.running) {
+      return
+    }
+
+    if (this.lastFrameTimestamp === null) {
+      this.firstFrameTimestamp = timestamp
+      this.lastFrameTimestamp = timestamp
+      this.rafId = window.requestAnimationFrame(this.collectFrameSample)
+      return
+    }
+
+    const frameDurationMs = Math.max(0, timestamp - this.lastFrameTimestamp)
+    this.lastFrameTimestamp = timestamp
+    if (this.frameDurationsMs.length < MAX_FRAME_HEALTH_SAMPLE_COUNT) {
+      this.frameDurationsMs.push(frameDurationMs)
+    }
+
+    this.rafId = window.requestAnimationFrame(this.collectFrameSample)
+  }
+
+  private buildMetrics(): FrameHealthMetrics {
+    const sampleCount = this.frameDurationsMs.length
+    const sortedDurations = [...this.frameDurationsMs].sort((a, b) => a - b)
+    const totalFrameDurationMs = this.frameDurationsMs.reduce(
+      (sum, durationMs) => sum + durationMs,
+      0,
+    )
+
+    const p95Index = sampleCount > 0 ? Math.max(0, Math.ceil(sampleCount * 0.95) - 1) : 0
+    const p95FrameDurationMs = sampleCount > 0 ? sortedDurations[p95Index] : 0
+    const maxFrameDurationMs = sampleCount > 0 ? sortedDurations[sampleCount - 1] : 0
+    const sampledDurationMs =
+      this.firstFrameTimestamp !== null && this.lastFrameTimestamp !== null
+        ? Math.max(0, this.lastFrameTimestamp - this.firstFrameTimestamp)
+        : 0
+    const longFrameCount = this.frameDurationsMs.reduce(
+      (count, durationMs) =>
+        count + (durationMs > this.longFrameThresholdMs ? 1 : 0),
+      0,
+    )
+
+    return {
+      sampleCount,
+      sampledDurationMs,
+      averageFrameDurationMs: sampleCount > 0 ? totalFrameDurationMs / sampleCount : 0,
+      p95FrameDurationMs,
+      maxFrameDurationMs,
+      longFrameCount,
+      longFrameThresholdMs: this.longFrameThresholdMs,
+    }
+  }
+}
+
 function runCoreLoopFlow(game: Phaser.Game): CoreLoopRunResult {
   const ranchScene = getRanchSceneOrThrow(game)
   const sceneBindings = getDebugBindings(ranchScene)
@@ -315,6 +427,7 @@ export function installSmokeHarness(game: Phaser.Game): void {
     return
   }
 
+  const frameHealthSampler = new FrameHealthSampler()
   const smokeWindow = window as SmokeWindow
   smokeWindow[SMOKE_WINDOW_KEY] = {
     waitForReady: async (timeoutMs = DEFAULT_READY_TIMEOUT_MS): Promise<void> => {
@@ -331,5 +444,9 @@ export function installSmokeHarness(game: Phaser.Game): void {
     debugSeedInventory: (itemId: string, quantity: number): void => {
       debugSeedInventory(game, itemId, quantity)
     },
+    startFrameHealthSampling: (options: FrameHealthSamplingOptions = {}): void => {
+      frameHealthSampler.start(options)
+    },
+    stopFrameHealthSampling: (): FrameHealthMetrics => frameHealthSampler.stop(),
   }
 }

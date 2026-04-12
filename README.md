@@ -68,6 +68,24 @@ For failure triage:
 4. Capture an interactive repro and inspect smoke state in DevTools:
    `npm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
 
+### Frame-health gate triage
+
+`tests/smoke/core-loop.spec.ts` now samples runtime frame pacing via the smoke harness and
+enforces per-project budgets defined in `tests/smoke/frameHealthBudgets.ts`.
+
+If CI fails on frame-health:
+
+1. Re-run only the gated core-loop smoke for the failing project:
+   `npm run test:smoke -- --project=mobile-chromium tests/smoke/core-loop.spec.ts`
+   or
+   `npm run test:smoke -- --project=desktop-chromium tests/smoke/core-loop.spec.ts`
+2. Read the test log line prefixed with `[frame-health][<project>]` for p95, long-frame count,
+   long-frame threshold, and max-frame duration.
+3. Open Playwright artifacts for the failed run:
+   `npx playwright show-trace test-results/**/trace.zip`
+4. Adjust budget thresholds only through `tests/smoke/frameHealthBudgets.ts` when an intentional
+   performance target change is approved.
+
 Run the deterministic expansion pacing check with:
 
 ```bash
