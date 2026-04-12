@@ -36,6 +36,9 @@ type FrameHealthMetrics = {
 }
 
 type ReturnObjectiveSnapshot = {
+  objectiveLoopEnabled: boolean
+  streakBonusEnabled: boolean
+  retentionKillSwitchEnabled: boolean
   activeObjectiveId: string | null
   metric: 'harvest_count' | 'sell_value' | null
   progressValue: number
@@ -53,6 +56,12 @@ type ReturnObjectiveClaimDebugResult = {
   awardedRewardAmount: number
   awardedStreakTier: number
   assignmentCycleAfterClaim: number
+}
+
+type SmokeLaunchOptions = {
+  retentionObjectiveUi?: boolean
+  retentionStreakBonus?: boolean
+  retentionKillSwitch?: boolean
 }
 
 async function waitForSmokeHarness(page: Page): Promise<void> {
@@ -81,6 +90,24 @@ async function waitForSmokeHarness(page: Page): Promise<void> {
     },
     SMOKE_HARNESS_KEY,
   )
+}
+
+async function launchSmokeSession(page: Page, options: SmokeLaunchOptions = {}): Promise<void> {
+  const params = new URLSearchParams()
+  params.set('smokeTest', '1')
+
+  if (options.retentionObjectiveUi !== undefined) {
+    params.set('retentionObjectiveUi', options.retentionObjectiveUi ? '1' : '0')
+  }
+  if (options.retentionStreakBonus !== undefined) {
+    params.set('retentionStreakBonus', options.retentionStreakBonus ? '1' : '0')
+  }
+  if (options.retentionKillSwitch !== undefined) {
+    params.set('retentionKillSwitch', options.retentionKillSwitch ? '1' : '0')
+  }
+
+  await page.goto(`/?${params.toString()}`, { waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
 }
 
 async function getSnapshot(page: Page): Promise<SmokeSnapshot> {
@@ -199,8 +226,7 @@ async function persistLegacySaveWithoutStreak(page: Page): Promise<void> {
 }
 
 test('launch -> plant -> harvest -> sell -> expansion -> reload save', async ({ page }, testInfo) => {
-  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
-  await waitForSmokeHarness(page)
+  await launchSmokeSession(page)
   const frameHealthBudget = resolveFrameHealthBudget(testInfo.project.name)
 
   const initialSnapshot = await getSnapshot(page)
@@ -260,10 +286,12 @@ test('launch -> plant -> harvest -> sell -> expansion -> reload save', async ({ 
 })
 
 test('return objective streak increments on consecutive claims and survives reload', async ({ page }) => {
-  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
-  await waitForSmokeHarness(page)
+  await launchSmokeSession(page)
 
   const initialSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(initialSnapshot.objectiveLoopEnabled).toBe(true)
+  expect(initialSnapshot.streakBonusEnabled).toBe(true)
+  expect(initialSnapshot.retentionKillSwitchEnabled).toBe(false)
   expect(initialSnapshot.activeObjectiveId).not.toBeNull()
   expect(initialSnapshot.streakTier).toBe(0)
 
@@ -285,9 +313,53 @@ test('return objective streak increments on consecutive claims and survives relo
   expect(reloadedSnapshot.assignmentCycle).toBe(secondClaim.assignmentCycleAfterClaim)
 })
 
-test('legacy save payload without streak state hydrates safely', async ({ page }) => {
-  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
+test('return objective claim stays base-only when streak bonus flag is off', async ({ page }) => {
+  await launchSmokeSession(page, { retentionStreakBonus: false })
+
+  const initialSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(initialSnapshot.objectiveLoopEnabled).toBe(true)
+  expect(initialSnapshot.streakBonusEnabled).toBe(false)
+  expect(initialSnapshot.retentionKillSwitchEnabled).toBe(false)
+  expect(initialSnapshot.activeObjectiveId).not.toBeNull()
+  expect(initialSnapshot.streakTier).toBe(0)
+  expect(initialSnapshot.nextStreakTier).toBe(0)
+
+  const firstClaim = await claimCurrentReturnObjective(page)
+  expect(firstClaim.result).toBe('claimed')
+  expect(firstClaim.awardedRewardAmount).toBe(initialSnapshot.rewardAmount)
+  expect(firstClaim.awardedStreakTier).toBe(0)
+
+  const secondClaim = await claimCurrentReturnObjective(page)
+  expect(secondClaim.result).toBe('claimed')
+  expect(secondClaim.awardedStreakTier).toBe(0)
+  expect(secondClaim.assignmentCycleAfterClaim).toBe(firstClaim.assignmentCycleAfterClaim + 1)
+})
+
+test('retention kill switch disables objective boot assignment and claim flow safely', async ({ page }) => {
+  await launchSmokeSession(page, { retentionKillSwitch: true })
+
+  const initialSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(initialSnapshot.retentionKillSwitchEnabled).toBe(true)
+  expect(initialSnapshot.objectiveLoopEnabled).toBe(false)
+  expect(initialSnapshot.streakBonusEnabled).toBe(false)
+  expect(initialSnapshot.activeObjectiveId).toBeNull()
+
+  const claimAttempt = await claimCurrentReturnObjective(page)
+  expect(claimAttempt.result).toBe('no_active_objective')
+  expect(claimAttempt.awardedRewardAmount).toBe(0)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
+
+  const reloadedSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(reloadedSnapshot.retentionKillSwitchEnabled).toBe(true)
+  expect(reloadedSnapshot.objectiveLoopEnabled).toBe(false)
+  expect(reloadedSnapshot.streakBonusEnabled).toBe(false)
+  expect(reloadedSnapshot.activeObjectiveId).toBeNull()
+})
+
+test('legacy save payload without streak state hydrates safely', async ({ page }) => {
+  await launchSmokeSession(page)
 
   await claimCurrentReturnObjective(page)
   await persistLegacySaveWithoutStreak(page)

@@ -42,6 +42,7 @@ import {
   type ReturnObjectiveId,
   type ReturnObjectiveMetric,
 } from '../config/returnObjectives'
+import { retentionFeatureFlags } from '../config/retentionFlags'
 import { PLAYABLE_SCENES, SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { PerformanceTracker } from './performance'
 import {
@@ -120,6 +121,9 @@ export interface FtueStateSnapshot {
 }
 
 export interface ReturnObjectiveStateSnapshot {
+  objectiveLoopEnabled: boolean
+  streakBonusEnabled: boolean
+  retentionKillSwitchEnabled: boolean
   activeObjectiveId: ReturnObjectiveId | null
   goalId: string | null
   title: string | null
@@ -563,10 +567,16 @@ function resolveDeterministicReturnObjectiveId(
 function createEmptyReturnObjectiveSnapshot(
   assignmentCycle: number,
   streakTier: number,
+  objectiveLoopEnabled: boolean,
+  streakBonusEnabled: boolean,
 ): ReturnObjectiveStateSnapshot {
-  const streakReward = calculateReturnObjectiveStreakReward(0, streakTier)
-  const nextStreakTier = clampReturnObjectiveStreakTier(streakTier + 1)
+  const effectiveStreakTier = streakBonusEnabled ? clampReturnObjectiveStreakTier(streakTier) : 0
+  const streakReward = calculateReturnObjectiveStreakReward(0, effectiveStreakTier)
+  const nextStreakTier = streakBonusEnabled ? clampReturnObjectiveStreakTier(streakReward.streakTier + 1) : 0
   return {
+    objectiveLoopEnabled,
+    streakBonusEnabled,
+    retentionKillSwitchEnabled: retentionFeatureFlags.retentionKillSwitchEnabled,
     activeObjectiveId: null,
     goalId: null,
     title: null,
@@ -596,12 +606,28 @@ function buildReturnObjectiveSnapshot(
   streakState: SaveReturnObjectiveStreakStateV1,
   nowEpochMs: number = Date.now(),
 ): ReturnObjectiveStateSnapshot {
+  const objectiveLoopEnabled = retentionFeatureFlags.objectiveLoopUiEnabled
+  const streakBonusEnabled = retentionFeatureFlags.streakBonusEnabled
   const normalized = normalizeReturnObjectiveState(state)
+  if (!objectiveLoopEnabled) {
+    return createEmptyReturnObjectiveSnapshot(
+      normalized.assignmentCycle,
+      0,
+      objectiveLoopEnabled,
+      streakBonusEnabled,
+    )
+  }
+
   const streakDecay = resolveReturnObjectiveStreakDecay(streakState, nowEpochMs)
-  const streakTier = streakDecay.effectiveTier
-  const nextStreakTier = clampReturnObjectiveStreakTier(streakTier + 1)
+  const streakTier = streakBonusEnabled ? streakDecay.effectiveTier : 0
+  const nextStreakTier = streakBonusEnabled ? clampReturnObjectiveStreakTier(streakTier + 1) : 0
   if (normalized.activeObjectiveId === null) {
-    return createEmptyReturnObjectiveSnapshot(normalized.assignmentCycle, streakTier)
+    return createEmptyReturnObjectiveSnapshot(
+      normalized.assignmentCycle,
+      streakTier,
+      objectiveLoopEnabled,
+      streakBonusEnabled,
+    )
   }
 
   const objectiveConfig = getReturnObjectiveConfig(normalized.activeObjectiveId)
@@ -616,6 +642,9 @@ function buildReturnObjectiveSnapshot(
   )
 
   return {
+    objectiveLoopEnabled,
+    streakBonusEnabled,
+    retentionKillSwitchEnabled: retentionFeatureFlags.retentionKillSwitchEnabled,
     activeObjectiveId: normalized.activeObjectiveId,
     goalId: objectiveConfig.goalId,
     title: objectiveConfig.title,
@@ -891,6 +920,10 @@ export function createGameServices(
   }
 
   const assignDeterministicReturnObjective = (source: string): ReturnObjectiveStateSnapshot => {
+    if (!retentionFeatureFlags.objectiveLoopUiEnabled) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
     const now = Date.now()
     const currentState = readReturnObjectiveState()
     const progression = readProgressionStateForObjectiveAssignment()
@@ -925,6 +958,10 @@ export function createGameServices(
   }
 
   const ensureReturnObjectiveAssignedForSession = (source: string): ReturnObjectiveStateSnapshot => {
+    if (!retentionFeatureFlags.objectiveLoopUiEnabled) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
     const currentState = readReturnObjectiveState()
     if (currentState.activeObjectiveId && currentState.claimedAtEpochMs === null) {
       return getReturnObjectiveStateSnapshot()
@@ -1403,6 +1440,10 @@ export function createGameServices(
     amount: number = 1,
     source: string = 'unspecified',
   ): ReturnObjectiveStateSnapshot => {
+    if (!retentionFeatureFlags.objectiveLoopUiEnabled) {
+      return getReturnObjectiveStateSnapshot()
+    }
+
     const normalizedAmount = Math.floor(amount)
     if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
       return getReturnObjectiveStateSnapshot()
@@ -1473,6 +1514,15 @@ export function createGameServices(
     const now = Date.now()
     const currentSnapshot = buildReturnObjectiveSnapshot(currentState, currentStreakState, now)
 
+    if (!retentionFeatureFlags.objectiveLoopUiEnabled) {
+      return {
+        result: 'no_active_objective',
+        rewardAmount: 0,
+        balance: getCurrencyBalance(),
+        state: currentSnapshot,
+      }
+    }
+
     if (currentState.activeObjectiveId === null) {
       return {
         result: 'no_active_objective',
@@ -1505,10 +1555,18 @@ export function createGameServices(
       }
     }
 
-    const streakDecay = resolveReturnObjectiveStreakDecay(currentStreakState, now)
-    const previousTier = clampReturnObjectiveStreakTier(currentStreakState.tier)
-    const effectiveTierBeforeClaim = streakDecay.effectiveTier
-    const nextStreakTier = clampReturnObjectiveStreakTier(effectiveTierBeforeClaim + 1)
+    const streakBonusEnabled = retentionFeatureFlags.streakBonusEnabled
+    const streakDecay = streakBonusEnabled
+      ? resolveReturnObjectiveStreakDecay(currentStreakState, now)
+      : {
+          effectiveTier: 0,
+          didDecay: false,
+          elapsedMsSinceClaim: null,
+          missedGraceWindows: 0,
+        }
+    const previousTier = streakBonusEnabled ? clampReturnObjectiveStreakTier(currentStreakState.tier) : 0
+    const effectiveTierBeforeClaim = streakBonusEnabled ? streakDecay.effectiveTier : 0
+    const nextStreakTier = streakBonusEnabled ? clampReturnObjectiveStreakTier(effectiveTierBeforeClaim + 1) : 0
     const claimReward = calculateReturnObjectiveStreakReward(objectiveConfig.rewardAmount, nextStreakTier)
 
     setReturnObjectiveState({
@@ -1517,13 +1575,15 @@ export function createGameServices(
       claimedAtEpochMs: now,
       assignmentCycle: currentState.assignmentCycle + 1,
     })
-    setReturnObjectiveStreakState(
-      {
-        tier: nextStreakTier,
-        lastClaimedAtEpochMs: now,
-      },
-      { persist: false },
-    )
+    if (streakBonusEnabled) {
+      setReturnObjectiveStreakState(
+        {
+          tier: nextStreakTier,
+          lastClaimedAtEpochMs: now,
+        },
+        { persist: false },
+      )
+    }
 
     const balance = addCurrency(
       claimReward.totalRewardAmount,
@@ -1541,46 +1601,48 @@ export function createGameServices(
       eventTimestampMs: now,
     })
 
-    if (streakDecay.didDecay) {
-      telemetry.track('streak_reset', {
-        previousTier,
-        resetToTier: effectiveTierBeforeClaim,
-        nextTier: nextStreakTier,
-        elapsedMsSinceClaim: streakDecay.elapsedMsSinceClaim ?? 0,
-        missedGraceWindows: streakDecay.missedGraceWindows,
-        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+    if (streakBonusEnabled) {
+      if (streakDecay.didDecay) {
+        telemetry.track('streak_reset', {
+          previousTier,
+          resetToTier: effectiveTierBeforeClaim,
+          nextTier: nextStreakTier,
+          elapsedMsSinceClaim: streakDecay.elapsedMsSinceClaim ?? 0,
+          missedGraceWindows: streakDecay.missedGraceWindows,
+          graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+          source: normalizedSource,
+          eventTimestampMs: now,
+        })
+      }
+
+      if (effectiveTierBeforeClaim <= 0) {
+        telemetry.track('streak_started', {
+          streakTier: nextStreakTier,
+          graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+          source: normalizedSource,
+          eventTimestampMs: now,
+        })
+      } else if (nextStreakTier > effectiveTierBeforeClaim) {
+        telemetry.track('streak_advanced', {
+          previousTier: effectiveTierBeforeClaim,
+          nextTier: nextStreakTier,
+          graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+          source: normalizedSource,
+          eventTimestampMs: now,
+        })
+      }
+
+      telemetry.track('streak_claim_bonus', {
+        objectiveId: objectiveConfig.id,
+        baseRewardAmount: claimReward.baseRewardAmount,
+        streakTier: claimReward.streakTier,
+        rewardMultiplier: claimReward.rewardMultiplier,
+        rewardBonusAmount: claimReward.streakBonusAmount,
+        totalRewardAmount: claimReward.totalRewardAmount,
         source: normalizedSource,
         eventTimestampMs: now,
       })
     }
-
-    if (effectiveTierBeforeClaim <= 0) {
-      telemetry.track('streak_started', {
-        streakTier: nextStreakTier,
-        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
-        source: normalizedSource,
-        eventTimestampMs: now,
-      })
-    } else if (nextStreakTier > effectiveTierBeforeClaim) {
-      telemetry.track('streak_advanced', {
-        previousTier: effectiveTierBeforeClaim,
-        nextTier: nextStreakTier,
-        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
-        source: normalizedSource,
-        eventTimestampMs: now,
-      })
-    }
-
-    telemetry.track('streak_claim_bonus', {
-      objectiveId: objectiveConfig.id,
-      baseRewardAmount: claimReward.baseRewardAmount,
-      streakTier: claimReward.streakTier,
-      rewardMultiplier: claimReward.rewardMultiplier,
-      rewardBonusAmount: claimReward.streakBonusAmount,
-      totalRewardAmount: claimReward.totalRewardAmount,
-      source: normalizedSource,
-      eventTimestampMs: now,
-    })
 
     const nextState = assignDeterministicReturnObjective(`claim:${normalizedSource}`)
 

@@ -7,6 +7,7 @@ Add a deterministic economy simulation for return objective rewards so reward tu
 ## Source Of Truth
 
 - Shared tuning config: `src/game/config/returnObjectiveEconomyTuning.shared.js`
+- Retention rollout flags: `src/game/config/retentionFlags.ts`
 - Gameplay consumers:
   - `src/game/config/returnObjectives.ts`
   - `src/game/config/returnObjectiveStreak.ts`
@@ -45,6 +46,33 @@ The check fails (`exit 1`) if any scenario exceeds:
 - maximum net inflation delta
 - maximum streak-bonus share
 
+## Retention Rollout Flags (VER-92)
+
+Source-controlled rollout controls live in `src/game/config/retentionFlags.ts`.
+
+- `objectiveLoopUiEnabled`
+  - Controls return objective assignment/progression/claim UI behavior.
+- `streakBonusEnabled`
+  - Controls streak multiplier/bonus application and streak lifecycle telemetry.
+- `retentionKillSwitchEnabled`
+  - Master kill switch. Forces objective-loop and streak-bonus paths off.
+
+Runtime expectations when disabled:
+
+- objective loop disabled:
+  - boot does not assign a return objective
+  - progress/claim calls return safely with no retention lifecycle telemetry emission
+- streak bonus disabled (objective loop still enabled):
+  - objective claims still work
+  - claim rewards stay base-only (no streak multiplier/bonus)
+  - streak lifecycle telemetry (`streak_started`, `streak_advanced`, `streak_reset`, `streak_claim_bonus`) is suppressed
+
+Smoke-only query overrides (for local validation) are available when `smokeTest=1`:
+
+- `retentionObjectiveUi=0|1`
+- `retentionStreakBonus=0|1`
+- `retentionKillSwitch=0|1`
+
 ## Local Tuning Workflow
 
 1. Edit objective/streak tuning in `src/game/config/returnObjectiveEconomyTuning.shared.js`.
@@ -56,3 +84,14 @@ The check fails (`exit 1`) if any scenario exceeds:
    - `npm run test:analytics:retention`
 5. Re-run smoke regression before release:
    - `npm run test:smoke`
+
+## Rollout / Rollback Steps
+
+1. Edit `src/game/config/retentionFlags.ts` with the planned rollout state.
+2. Validate analytics contracts:
+   - `npm run test:analytics:retention`
+3. Validate smoke on both paths:
+   - default flags on: `npm run test:smoke -- --grep "return objective streak increments"`
+   - kill switch path: `npm run test:smoke -- --grep "retention kill switch disables objective boot assignment and claim flow safely"`
+4. Ship once both analytics + smoke checks pass.
+5. Rollback (if needed): set `retentionKillSwitchEnabled` to `true` in the same file, re-run checks, and redeploy.

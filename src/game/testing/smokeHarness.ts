@@ -83,6 +83,9 @@ interface FrameHealthMetrics {
 }
 
 interface ReturnObjectiveSnapshot {
+  objectiveLoopEnabled: boolean
+  streakBonusEnabled: boolean
+  retentionKillSwitchEnabled: boolean
   activeObjectiveId: string | null
   metric: 'harvest_count' | 'sell_value' | null
   progressValue: number
@@ -452,6 +455,9 @@ function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot 
   const snapshot = services.getReturnObjectiveStateSnapshot()
 
   return {
+    objectiveLoopEnabled: snapshot.objectiveLoopEnabled,
+    streakBonusEnabled: snapshot.streakBonusEnabled,
+    retentionKillSwitchEnabled: snapshot.retentionKillSwitchEnabled,
     activeObjectiveId: snapshot.activeObjectiveId,
     metric: snapshot.metric,
     progressValue: snapshot.progressValue,
@@ -470,21 +476,25 @@ function debugClaimCurrentReturnObjective(game: Phaser.Game): ReturnObjectiveCla
   const services = getGameServices(ranchScene)
   const currentSnapshot = services.getReturnObjectiveStateSnapshot()
 
-  if (currentSnapshot.activeObjectiveId === null || currentSnapshot.metric === null) {
-    throw new Error('No active return objective available in smoke harness.')
-  }
+  const objectiveLoopEnabled = currentSnapshot.objectiveLoopEnabled
 
-  const remainingProgress = Math.max(0, currentSnapshot.targetValue - currentSnapshot.progressValue)
-  if (remainingProgress > 0) {
-    services.progressReturnObjective(
-      currentSnapshot.metric,
-      remainingProgress,
-      'smoke:return_objective_complete',
-    )
+  if (objectiveLoopEnabled) {
+    if (currentSnapshot.activeObjectiveId === null || currentSnapshot.metric === null) {
+      throw new Error('No active return objective available in smoke harness.')
+    }
+
+    const remainingProgress = Math.max(0, currentSnapshot.targetValue - currentSnapshot.progressValue)
+    if (remainingProgress > 0) {
+      services.progressReturnObjective(
+        currentSnapshot.metric,
+        remainingProgress,
+        'smoke:return_objective_complete',
+      )
+    }
   }
 
   const claim = services.claimReturnObjectiveReward('smoke:return_objective_claim')
-  if (claim.result !== 'claimed') {
+  if (objectiveLoopEnabled && claim.result !== 'claimed') {
     throw new Error(`Expected claimed return objective result in smoke harness, got "${claim.result}".`)
   }
 

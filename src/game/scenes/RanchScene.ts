@@ -647,6 +647,12 @@ export class RanchScene extends Phaser.Scene {
 
     const services = getGameServices(this)
     const activeState = state ?? services.getReturnObjectiveStateSnapshot()
+    if (!activeState.objectiveLoopEnabled) {
+      this.returnObjectiveLabel.setVisible(false)
+      this.returnObjectiveClaimButton.setVisible(false).disableInteractive()
+      return
+    }
+
     const objectiveText = this.buildReturnObjectiveText(activeState)
 
     if (objectiveText === null) {
@@ -681,27 +687,32 @@ export class RanchScene extends Phaser.Scene {
   }
 
   private buildReturnObjectiveText(state: ReturnObjectiveStateSnapshot): string | null {
-    if (!state.activeObjectiveId || !state.title || !state.metric) {
+    if (!state.objectiveLoopEnabled || !state.activeObjectiveId || !state.title || !state.metric) {
       return null
     }
 
     const metricLabel = state.metric === 'harvest_count' ? 'Harvest progress' : 'Sell value progress'
     const statusLabel = state.isCompleted ? 'Complete: claim your reward.' : 'In progress.'
+    const rewardDetail =
+      state.streakBonusEnabled && state.streakRewardBonusAmount > 0
+        ? `Claim reward: +${state.claimRewardAmount} coins (base +${state.rewardAmount}, streak +${state.streakRewardBonusAmount})`
+        : `Claim reward: +${state.claimRewardAmount} coins`
+
+    if (!state.streakBonusEnabled) {
+      return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\nStreak bonus: disabled for this rollout.\n${rewardDetail}\n${statusLabel}`
+    }
+
     const streakWindowHours = Math.max(1, Math.round(state.streakGraceWindowMs / (60 * 60 * 1000)))
     const streakLabel =
       state.streakTier > 0
         ? `Streak: Tier ${state.streakTier}/${state.streakMaxTier} (claim within ${streakWindowHours}h).`
         : `Streak: none yet (claim within ${streakWindowHours}h to build one).`
-    const streakRewardDetail =
-      state.streakRewardBonusAmount > 0
-        ? `Claim reward: +${state.claimRewardAmount} coins (base +${state.rewardAmount}, streak +${state.streakRewardBonusAmount})`
-        : `Claim reward: +${state.claimRewardAmount} coins`
     const nextTierLabel =
       state.nextStreakTier > state.streakTier
         ? `Next tier ${state.nextStreakTier} preview: +${state.nextClaimRewardAmount} coins`
         : `Max streak tier preview: +${state.nextClaimRewardAmount} coins`
 
-    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\n${streakLabel}\n${streakRewardDetail}\n${nextTierLabel}\n${statusLabel}`
+    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\n${streakLabel}\n${rewardDetail}\n${nextTierLabel}\n${statusLabel}`
   }
 
   private buildRanchStateSnapshot(): RanchStateSnapshot {
@@ -1841,6 +1852,15 @@ export class RanchScene extends Phaser.Scene {
   private tryClaimReturnObjectiveReward(source: 'keyboard' | 'pointer'): void {
     const services = getGameServices(this)
     const claim = services.claimReturnObjectiveReward(`ranch:${source}`)
+
+    if (!claim.state.objectiveLoopEnabled) {
+      this.showInteractionFeedback(
+        'Return objectives are disabled for this rollout.',
+        FEEDBACK_COLOR_DEFAULT,
+      )
+      this.refreshReturnObjectiveUi(claim.state)
+      return
+    }
 
     if (claim.result === 'claimed') {
       this.showInteractionFeedback(
