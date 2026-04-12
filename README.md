@@ -68,6 +68,49 @@ For failure triage:
 4. Capture an interactive repro and inspect smoke state in DevTools:
    `npm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
 
+### Retention telemetry contract checks
+
+Validate retention objective/streak telemetry contracts with:
+
+```bash
+npm run test:telemetry:retention
+```
+
+This fixture-driven gate validates required payload keys for:
+
+- `return_objective_assigned`
+- `return_objective_progressed`
+- `return_objective_completed`
+- `return_objective_claimed`
+- `streak_started`
+- `streak_advanced`
+- `streak_reset`
+- `streak_claim_bonus`
+
+It compares the fixture contract in `tests/fixtures/analytics/retention-contract.fixture.json`
+against both:
+
+- `src/game/systems/telemetry.ts` (`TELEMETRY_EVENT_SCHEMA`)
+- `src/game/systems/runtime.ts` (`telemetry.track(...)` payload literals)
+
+Run deterministic cohort export fixture verification with:
+
+```bash
+npm run test:analytics:retention-cohort
+```
+
+Run both retention analytics checks together (this is what CI runs):
+
+```bash
+npm run test:analytics:retention
+```
+
+Export cohort retention indicators from captured events:
+
+```bash
+npm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
+```
+
 ### Frame-health gate triage
 
 `tests/smoke/core-loop.spec.ts` now samples runtime frame pacing via the smoke harness and

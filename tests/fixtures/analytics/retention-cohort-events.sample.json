@@ -1,0 +1,142 @@
+[
+  {
+    "name": "boot_completed",
+    "payload": {
+      "cohort": "mobile_web",
+      "width": 390,
+      "height": 844,
+      "touch": true
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-1"
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-2"
+    }
+  },
+  {
+    "event": "return_objective_assigned",
+    "properties": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-3"
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-4"
+    }
+  },
+  {
+    "name": "return_objective_completed",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-1"
+    }
+  },
+  {
+    "event": "return_objective_completed",
+    "properties": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-2"
+    }
+  },
+  {
+    "name": "return_objective_completed",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-3"
+    }
+  },
+  {
+    "name": "return_objective_claimed",
+    "payload": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-1"
+    }
+  },
+  {
+    "event": "return_objective_claimed",
+    "properties": {
+      "cohort": "mobile_web",
+      "objectiveId": "m-2"
+    }
+  },
+  {
+    "name": "streak_advanced",
+    "payload": {
+      "cohort": "mobile_web",
+      "previousTier": 1,
+      "nextTier": 2
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "cohort": "desktop_web",
+      "objectiveId": "d-1"
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "cohort": "desktop_web",
+      "objectiveId": "d-2"
+    }
+  },
+  {
+    "event": "return_objective_assigned",
+    "properties": {
+      "cohort": "desktop_web",
+      "objectiveId": "d-3"
+    }
+  },
+  {
+    "name": "return_objective_completed",
+    "payload": {
+      "cohort": "desktop_web",
+      "objectiveId": "d-1"
+    }
+  },
+  {
+    "name": "return_objective_claimed",
+    "payload": {
+      "cohort": "desktop_web",
+      "objectiveId": "d-1"
+    }
+  },
+  {
+    "name": "return_objective_assigned",
+    "payload": {
+      "objectiveId": "all-1"
+    }
+  },
+  {
+    "name": "return_objective_completed",
+    "payload": {
+      "objectiveId": "all-1"
+    }
+  },
+  {
+    "name": "return_objective_claimed",
+    "payload": {
+      "objectiveId": "all-1"
+    }
+  },
+  {
+    "name": "streak_advanced",
+    "payload": {
+      "previousTier": 2,
+      "nextTier": 3
+    }
+  }
+]

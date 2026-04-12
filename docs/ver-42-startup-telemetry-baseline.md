@@ -50,6 +50,37 @@ Schema change policy:
 - Additive-first changes only for active analytics events.
 - If a breaking event shape change is needed, run dual-write migration first and explicitly review with governance owner.
 
+## Retention Contract Gate (VER-90)
+
+Retention objective/streak lifecycle events now ship with fixture-driven contract checks.
+
+Contract fixture:
+
+- `tests/fixtures/analytics/retention-contract.fixture.json`
+
+Validation command:
+
+```bash
+npm run test:telemetry:retention
+```
+
+Cohort export utility command:
+
+```bash
+npm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
+```
+
+Deterministic fixture test for export utility:
+
+```bash
+npm run test:analytics:retention-cohort
+```
+
+CI expectation:
+
+- `.github/workflows/bundle-budget-gate.yml` runs `npm run test:analytics:retention` on every PR and `main` push.
+- Retention contract/event-shape regressions must fail before smoke/performance rollout checks continue.
+
 ## Privacy Constraints
 
 Telemetry is anonymous-by-default:
@@ -138,12 +169,13 @@ window.addEventListener('tiny-ranch:telemetry', (event) => console.log(event.det
 ## Rollout Checklist
 
 1. Validate `npm run build` passes with current telemetry schema changes.
-2. Verify local console sink still emits startup baseline events with no gameplay regressions.
-3. Deploy to staging with `VITE_TELEMETRY_SINK=posthog`.
-4. Confirm PostHog receives startup baseline events and no unknown-key warnings appear for expected payloads.
-5. Confirm `doNotTrack` behavior by setting browser DNT and verifying no PostHog network sends.
-6. Confirm fallback path by backgrounding/closing tab and verifying final batch attempts via `sendBeacon`/`keepalive`.
-7. Announce rollout in the active implementation issue and link this document for metric definitions.
+2. Run `npm run test:analytics:retention` and confirm retention contract/export checks pass.
+3. Verify local console sink still emits startup baseline events with no gameplay regressions.
+4. Deploy to staging with `VITE_TELEMETRY_SINK=posthog`.
+5. Confirm PostHog receives startup baseline events and no unknown-key warnings appear for expected payloads.
+6. Confirm `doNotTrack` behavior by setting browser DNT and verifying no PostHog network sends.
+7. Confirm fallback path by backgrounding/closing tab and verifying final batch attempts via `sendBeacon`/`keepalive`.
+8. Announce rollout in the active implementation issue and link this document for metric definitions.
 
 ## Weekly Reporting Surface
 

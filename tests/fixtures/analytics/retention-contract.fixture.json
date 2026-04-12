@@ -1,0 +1,174 @@
+{
+  "events": [
+    {
+      "name": "return_objective_assigned",
+      "requiredFields": [
+        "objectiveId",
+        "goalId",
+        "metric",
+        "targetValue",
+        "rewardAmount",
+        "assignmentCycle",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "objectiveId": "harvest_turnips_4",
+        "goalId": "harvest_count_goal",
+        "metric": "harvest_count",
+        "targetValue": 4,
+        "rewardAmount": 32,
+        "assignmentCycle": 0,
+        "source": "session_start",
+        "eventTimestampMs": 1712505600000
+      }
+    },
+    {
+      "name": "return_objective_progressed",
+      "requiredFields": [
+        "objectiveId",
+        "goalId",
+        "metric",
+        "progressBefore",
+        "progressAfter",
+        "targetValue",
+        "amount",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "objectiveId": "harvest_turnips_4",
+        "goalId": "harvest_count_goal",
+        "metric": "harvest_count",
+        "progressBefore": 2,
+        "progressAfter": 3,
+        "targetValue": 4,
+        "amount": 1,
+        "source": "crop_harvest",
+        "eventTimestampMs": 1712505601000
+      }
+    },
+    {
+      "name": "return_objective_completed",
+      "requiredFields": [
+        "objectiveId",
+        "goalId",
+        "metric",
+        "targetValue",
+        "rewardAmount",
+        "progressValue",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "objectiveId": "harvest_turnips_4",
+        "goalId": "harvest_count_goal",
+        "metric": "harvest_count",
+        "targetValue": 4,
+        "rewardAmount": 32,
+        "progressValue": 4,
+        "eventTimestampMs": 1712505602000
+      }
+    },
+    {
+      "name": "return_objective_claimed",
+      "requiredFields": [
+        "objectiveId",
+        "goalId",
+        "metric",
+        "targetValue",
+        "rewardAmount",
+        "balance",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "objectiveId": "harvest_turnips_4",
+        "goalId": "harvest_count_goal",
+        "metric": "harvest_count",
+        "targetValue": 4,
+        "rewardAmount": 35,
+        "balance": 245,
+        "source": "hud_claim_button",
+        "eventTimestampMs": 1712505603000
+      }
+    },
+    {
+      "name": "streak_started",
+      "requiredFields": [
+        "streakTier",
+        "graceWindowMs",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "streakTier": 1,
+        "graceWindowMs": 86400000,
+        "source": "hud_claim_button",
+        "eventTimestampMs": 1712505603000
+      }
+    },
+    {
+      "name": "streak_advanced",
+      "requiredFields": [
+        "previousTier",
+        "nextTier",
+        "graceWindowMs",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "previousTier": 1,
+        "nextTier": 2,
+        "graceWindowMs": 86400000,
+        "source": "hud_claim_button",
+        "eventTimestampMs": 1712505604000
+      }
+    },
+    {
+      "name": "streak_reset",
+      "requiredFields": [
+        "previousTier",
+        "resetToTier",
+        "nextTier",
+        "elapsedMsSinceClaim",
+        "missedGraceWindows",
+        "graceWindowMs",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "previousTier": 3,
+        "resetToTier": 0,
+        "nextTier": 1,
+        "elapsedMsSinceClaim": 190000000,
+        "missedGraceWindows": 2,
+        "graceWindowMs": 86400000,
+        "source": "hud_claim_button",
+        "eventTimestampMs": 1712505605000
+      }
+    },
+    {
+      "name": "streak_claim_bonus",
+      "requiredFields": [
+        "objectiveId",
+        "baseRewardAmount",
+        "streakTier",
+        "rewardMultiplier",
+        "rewardBonusAmount",
+        "totalRewardAmount",
+        "source",
+        "eventTimestampMs"
+      ],
+      "samplePayload": {
+        "objectiveId": "harvest_turnips_4",
+        "baseRewardAmount": 32,
+        "streakTier": 2,
+        "rewardMultiplier": 1.1,
+        "rewardBonusAmount": 3,
+        "totalRewardAmount": 35,
+        "source": "hud_claim_button",
+        "eventTimestampMs": 1712505604000
+      }
+    }
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "totals": {
+    "eventsProcessed": 20,
+    "retentionEventsProcessed": 19,
+    "cohortCount": 3
+  },
+  "cohorts": [
+    {
+      "cohort": "all",
+      "objectiveAssignedCount": 1,
+      "objectiveCompletedCount": 1,
+      "objectiveClaimedCount": 1,
+      "streakAdvancedCount": 1,
+      "objectiveCompletionRate": 1,
+      "claimRate": 1,
+      "streakAdvancementRate": 1
+    },
+    {
+      "cohort": "desktop_web",
+      "objectiveAssignedCount": 3,
+      "objectiveCompletedCount": 1,
+      "objectiveClaimedCount": 1,
+      "streakAdvancedCount": 0,
+      "objectiveCompletionRate": 0.3333,
+      "claimRate": 1,
+      "streakAdvancementRate": 0
+    },
+    {
+      "cohort": "mobile_web",
+      "objectiveAssignedCount": 4,
+      "objectiveCompletedCount": 3,
+      "objectiveClaimedCount": 2,
+      "streakAdvancedCount": 1,
+      "objectiveCompletionRate": 0.75,
+      "claimRate": 0.6667,
+      "streakAdvancementRate": 0.5
+    }
+  ]
+}
