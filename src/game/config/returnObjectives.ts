@@ -1,4 +1,10 @@
-export type ReturnObjectiveMetric = 'harvest_count' | 'sell_value'
+import {
+  returnObjectiveEconomyTuning,
+  type ReturnObjectiveEconomyObjectiveConfig,
+  type ReturnObjectiveMetric,
+} from './returnObjectiveEconomyTuning.shared.js'
+
+export type { ReturnObjectiveMetric }
 
 export interface ReturnObjectiveConfig {
   id: string
@@ -48,24 +54,22 @@ function defineReturnObjectiveConfig(config: ReturnObjectiveConfig): ReturnObjec
   }
 }
 
-const RETURN_OBJECTIVE_CONFIGS = [
-  defineReturnObjectiveConfig({
-    id: 'harvest_turnips_4',
-    goalId: 'harvest_count_goal',
-    title: 'Harvest 4 crops',
-    metric: 'harvest_count',
-    targetValue: 4,
-    rewardAmount: 32,
-  }),
-  defineReturnObjectiveConfig({
-    id: 'sell_value_56',
-    goalId: 'sell_value_goal',
-    title: 'Sell goods worth 56 coins',
-    metric: 'sell_value',
-    targetValue: 56,
-    rewardAmount: 40,
-  }),
-] as const satisfies readonly ReturnObjectiveConfig[]
+function cloneReturnObjectiveConfig(
+  config: ReturnObjectiveEconomyObjectiveConfig,
+): ReturnObjectiveConfig {
+  return {
+    id: config.id,
+    goalId: config.goalId,
+    title: config.title,
+    metric: config.metric,
+    targetValue: config.targetValue,
+    rewardAmount: config.rewardAmount,
+  }
+}
+
+const RETURN_OBJECTIVE_CONFIGS = returnObjectiveEconomyTuning.objectives.map((config) =>
+  defineReturnObjectiveConfig(cloneReturnObjectiveConfig(config)),
+)
 
 export type ReturnObjectiveId = (typeof RETURN_OBJECTIVE_CONFIGS)[number]['id']
 

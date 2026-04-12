@@ -1,3 +1,8 @@
+import {
+  returnObjectiveEconomyTuning,
+  type ReturnObjectiveEconomyStreakTierConfig,
+} from './returnObjectiveEconomyTuning.shared.js'
+
 export interface ReturnObjectiveStreakTierConfig {
   tier: number
   rewardMultiplier: number
@@ -84,16 +89,22 @@ function defineReturnObjectiveStreakConfig(
   }
 }
 
+function cloneStreakTierConfig(
+  tierConfig: ReturnObjectiveEconomyStreakTierConfig,
+): ReturnObjectiveStreakTierConfig {
+  return {
+    tier: tierConfig.tier,
+    rewardMultiplier: tierConfig.rewardMultiplier,
+    rewardBonus: tierConfig.rewardBonus,
+  }
+}
+
 const RETURN_OBJECTIVE_STREAK_CONFIG = defineReturnObjectiveStreakConfig({
-  maxTier: 5,
-  graceWindowMs: 24 * 60 * 60 * 1000,
-  tiers: [
-    { tier: 1, rewardMultiplier: 1, rewardBonus: 0 },
-    { tier: 2, rewardMultiplier: 1.1, rewardBonus: 2 },
-    { tier: 3, rewardMultiplier: 1.2, rewardBonus: 4 },
-    { tier: 4, rewardMultiplier: 1.35, rewardBonus: 8 },
-    { tier: 5, rewardMultiplier: 1.5, rewardBonus: 12 },
-  ],
+  maxTier: returnObjectiveEconomyTuning.streak.maxTier,
+  graceWindowMs: returnObjectiveEconomyTuning.streak.graceWindowMs,
+  tiers: returnObjectiveEconomyTuning.streak.tiers.map((tierConfig) =>
+    cloneStreakTierConfig(tierConfig),
+  ),
 })
 
 const returnObjectiveStreakTierConfigsByTier = RETURN_OBJECTIVE_STREAK_CONFIG.tiers.reduce(

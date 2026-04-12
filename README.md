@@ -138,6 +138,17 @@ npm run balance:check
 This script reports time-to-first-expansion and time-to-second-expansion checkpoints and fails when either checkpoint drifts outside the configured target range.
 Tuning levers and targets are centralized in `src/game/config/expansionEconomyTuning.shared.js` and documented in `docs/ver-78-expansion-economy-pacing.md`.
 
+Run the deterministic return objective/streak economy check with:
+
+```bash
+npm run balance:check:return-objectives
+```
+
+This script replays configured objective claim scenarios and reports earned/spent/net currency,
+streak bonus contribution, and reward inflation deltas vs baseline. Guardrail thresholds and
+scenario baselines are source-controlled in `src/game/config/returnObjectiveEconomyTuning.shared.js`
+and documented in `docs/ver-91-objective-streak-economy-guardrails.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration
