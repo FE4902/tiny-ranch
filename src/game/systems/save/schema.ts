@@ -2,6 +2,7 @@ import { animalProductionConfigs, type AnimalProductionId } from '../../config/a
 import { cropSeedConfigs, type CropSeedId } from '../../config/crops'
 import { getFirstFtueStepId, isFtueStepId, type FtueStepId } from '../../config/ftue'
 import { isReturnObjectiveId, type ReturnObjectiveId } from '../../config/returnObjectives'
+import { clampReturnObjectiveStreakTier } from '../../config/returnObjectiveStreak'
 import {
   clampExpansionTier,
   getDefaultExpansionTier,
@@ -65,6 +66,11 @@ export interface SaveReturnObjectiveStateV1 {
   assignmentCycle: number
 }
 
+export interface SaveReturnObjectiveStreakStateV1 {
+  tier: number
+  lastClaimedAtEpochMs: number | null
+}
+
 export interface SaveStateV1 {
   schemaVersion: typeof SAVE_SCHEMA_VERSION
   metadata: SaveMetadataV1
@@ -73,6 +79,7 @@ export interface SaveStateV1 {
   progression: SaveProgressionStateV1
   ftue: SaveFtueStateV1
   returnObjective: SaveReturnObjectiveStateV1
+  returnObjectiveStreak: SaveReturnObjectiveStreakStateV1
   ranch: {
     crops: SaveCropStateV1[]
     animals: SaveAnimalStateV1[]
@@ -312,6 +319,13 @@ export function createDefaultReturnObjectiveSaveState(): SaveReturnObjectiveStat
   }
 }
 
+export function createDefaultReturnObjectiveStreakSaveState(): SaveReturnObjectiveStreakStateV1 {
+  return {
+    tier: 0,
+    lastClaimedAtEpochMs: null,
+  }
+}
+
 function decodeFtue(value: unknown): SaveFtueStateV1 | null {
   if (value === undefined) {
     return createDefaultFtueSaveState()
@@ -392,6 +406,32 @@ function decodeReturnObjective(value: unknown): SaveReturnObjectiveStateV1 | nul
     completedAtEpochMs,
     claimedAtEpochMs,
     assignmentCycle,
+  }
+}
+
+function decodeReturnObjectiveStreak(value: unknown): SaveReturnObjectiveStreakStateV1 | null {
+  if (value === undefined) {
+    return createDefaultReturnObjectiveStreakSaveState()
+  }
+
+  if (!isObject(value)) {
+    return null
+  }
+
+  const tier = value.tier === undefined ? 0 : value.tier
+  if (!isNonNegativeInteger(tier)) {
+    return null
+  }
+
+  const lastClaimedAtEpochMs =
+    value.lastClaimedAtEpochMs === undefined ? null : value.lastClaimedAtEpochMs
+  if (!isNullableNonNegativeInteger(lastClaimedAtEpochMs)) {
+    return null
+  }
+
+  return {
+    tier: clampReturnObjectiveStreakTier(tier),
+    lastClaimedAtEpochMs,
   }
 }
 
@@ -478,6 +518,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
   const progression = decodeProgression(payload.progression)
   const ftue = decodeFtue(payload.ftue)
   const returnObjective = decodeReturnObjective(payload.returnObjective)
+  const returnObjectiveStreak = decodeReturnObjectiveStreak(payload.returnObjectiveStreak)
   const ranch = decodeRanchState(payload.ranch)
 
   if (!isNonNegativeInteger(payload.currency)) {
@@ -490,7 +531,15 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
     }
   }
 
-  if (!metadata || !inventory || !progression || !ftue || !returnObjective || !ranch) {
+  if (
+    !metadata ||
+    !inventory ||
+    !progression ||
+    !ftue ||
+    !returnObjective ||
+    !returnObjectiveStreak ||
+    !ranch
+  ) {
     return {
       ok: false,
       error: {
@@ -510,6 +559,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
       progression,
       ftue,
       returnObjective,
+      returnObjectiveStreak,
       ranch,
     },
   }

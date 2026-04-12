@@ -658,7 +658,7 @@ export class RanchScene extends Phaser.Scene {
     this.returnObjectiveLabel.setText(objectiveText).setVisible(true)
     const canClaim = activeState.isCompleted && !activeState.isClaimed
     const claimButtonLabel = canClaim
-      ? `Claim +${activeState.rewardAmount} coins`
+      ? `Claim +${activeState.claimRewardAmount} coins`
       : 'Claim reward (locked)'
     const claimButtonBg = canClaim
       ? RETURN_OBJECTIVE_CLAIM_BUTTON_BG_READY
@@ -687,8 +687,21 @@ export class RanchScene extends Phaser.Scene {
 
     const metricLabel = state.metric === 'harvest_count' ? 'Harvest progress' : 'Sell value progress'
     const statusLabel = state.isCompleted ? 'Complete: claim your reward.' : 'In progress.'
+    const streakWindowHours = Math.max(1, Math.round(state.streakGraceWindowMs / (60 * 60 * 1000)))
+    const streakLabel =
+      state.streakTier > 0
+        ? `Streak: Tier ${state.streakTier}/${state.streakMaxTier} (claim within ${streakWindowHours}h).`
+        : `Streak: none yet (claim within ${streakWindowHours}h to build one).`
+    const streakRewardDetail =
+      state.streakRewardBonusAmount > 0
+        ? `Claim reward: +${state.claimRewardAmount} coins (base +${state.rewardAmount}, streak +${state.streakRewardBonusAmount})`
+        : `Claim reward: +${state.claimRewardAmount} coins`
+    const nextTierLabel =
+      state.nextStreakTier > state.streakTier
+        ? `Next tier ${state.nextStreakTier} preview: +${state.nextClaimRewardAmount} coins`
+        : `Max streak tier preview: +${state.nextClaimRewardAmount} coins`
 
-    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\nReward: +${state.rewardAmount} coins\n${statusLabel}`
+    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\n${streakLabel}\n${streakRewardDetail}\n${nextTierLabel}\n${statusLabel}`
   }
 
   private buildRanchStateSnapshot(): RanchStateSnapshot {

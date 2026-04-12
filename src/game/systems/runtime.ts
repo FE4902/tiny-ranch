@@ -31,6 +31,11 @@ import {
   type UpgradeLevels,
 } from '../config/upgrades'
 import {
+  calculateReturnObjectiveStreakReward,
+  clampReturnObjectiveStreakTier,
+  returnObjectiveStreakConfig,
+} from '../config/returnObjectiveStreak'
+import {
   getReturnObjectiveConfig,
   isReturnObjectiveId,
   returnObjectiveConfigs,
@@ -57,9 +62,11 @@ import {
   type SaveFtueStateV1,
   type SaveProgressionStateV1,
   type SaveReturnObjectiveStateV1,
+  type SaveReturnObjectiveStreakStateV1,
   type SaveStateV1,
   createDefaultFtueSaveState,
   createDefaultReturnObjectiveSaveState,
+  createDefaultReturnObjectiveStreakSaveState,
 } from './save/schema'
 import type { TelemetryClient, TelemetryPayload } from './telemetry'
 
@@ -76,6 +83,7 @@ const FTUE_STATE_REGISTRY_KEY = 'tiny-ranch:ftue-state'
 const FTUE_CHANGED_EVENT = 'tiny-ranch:ftue-changed'
 const RETURN_OBJECTIVE_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-state'
 const RETURN_OBJECTIVE_CHANGED_EVENT = 'tiny-ranch:return-objective-changed'
+const RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-streak-state'
 const EXPANSION_TIER_REGISTRY_KEY = 'tiny-ranch:expansion-tier'
 const EXPANSION_TIER_CHANGED_EVENT = 'tiny-ranch:expansion-tier-changed'
 const UPGRADE_LEVELS_REGISTRY_KEY = 'tiny-ranch:upgrade-levels'
@@ -125,6 +133,14 @@ export interface ReturnObjectiveStateSnapshot {
   assignmentCycle: number
   isCompleted: boolean
   isClaimed: boolean
+  streakTier: number
+  streakMaxTier: number
+  streakGraceWindowMs: number
+  streakRewardMultiplier: number
+  streakRewardBonusAmount: number
+  claimRewardAmount: number
+  nextStreakTier: number
+  nextClaimRewardAmount: number
 }
 
 export interface ReturnObjectiveClaimResult {
@@ -449,6 +465,70 @@ function normalizeReturnObjectiveState(state: SaveReturnObjectiveStateV1): SaveR
   }
 }
 
+function normalizeReturnObjectiveStreakState(
+  state: SaveReturnObjectiveStreakStateV1,
+): SaveReturnObjectiveStreakStateV1 {
+  const tier = clampReturnObjectiveStreakTier(state.tier)
+  const lastClaimedAtEpochMs = normalizeNullableTimestamp(state.lastClaimedAtEpochMs)
+
+  if (tier <= 0) {
+    return {
+      tier: 0,
+      lastClaimedAtEpochMs,
+    }
+  }
+
+  return {
+    tier,
+    lastClaimedAtEpochMs,
+  }
+}
+
+interface ReturnObjectiveStreakDecayResolution {
+  effectiveTier: number
+  didDecay: boolean
+  elapsedMsSinceClaim: number | null
+  missedGraceWindows: number
+}
+
+function resolveReturnObjectiveStreakDecay(
+  state: SaveReturnObjectiveStreakStateV1,
+  nowEpochMs: number,
+): ReturnObjectiveStreakDecayResolution {
+  const normalized = normalizeReturnObjectiveStreakState(state)
+  if (normalized.tier <= 0 || normalized.lastClaimedAtEpochMs === null) {
+    return {
+      effectiveTier: 0,
+      didDecay: false,
+      elapsedMsSinceClaim: null,
+      missedGraceWindows: 0,
+    }
+  }
+
+  const elapsedMsSinceClaim = Math.max(0, nowEpochMs - normalized.lastClaimedAtEpochMs)
+  if (elapsedMsSinceClaim <= returnObjectiveStreakConfig.graceWindowMs) {
+    return {
+      effectiveTier: normalized.tier,
+      didDecay: false,
+      elapsedMsSinceClaim,
+      missedGraceWindows: 0,
+    }
+  }
+
+  const missedGraceWindows = Math.max(
+    1,
+    Math.floor(elapsedMsSinceClaim / returnObjectiveStreakConfig.graceWindowMs),
+  )
+  const effectiveTier = clampReturnObjectiveStreakTier(normalized.tier - missedGraceWindows)
+
+  return {
+    effectiveTier,
+    didDecay: effectiveTier < normalized.tier,
+    elapsedMsSinceClaim,
+    missedGraceWindows,
+  }
+}
+
 function resolveReturnObjectiveSeed(progression: SaveProgressionStateV1): number {
   let seed = progression.expansionTier * 17
 
@@ -482,7 +562,10 @@ function resolveDeterministicReturnObjectiveId(
 
 function createEmptyReturnObjectiveSnapshot(
   assignmentCycle: number,
+  streakTier: number,
 ): ReturnObjectiveStateSnapshot {
+  const streakReward = calculateReturnObjectiveStreakReward(0, streakTier)
+  const nextStreakTier = clampReturnObjectiveStreakTier(streakTier + 1)
   return {
     activeObjectiveId: null,
     goalId: null,
@@ -497,15 +580,28 @@ function createEmptyReturnObjectiveSnapshot(
     assignmentCycle,
     isCompleted: false,
     isClaimed: false,
+    streakTier: streakReward.streakTier,
+    streakMaxTier: returnObjectiveStreakConfig.maxTier,
+    streakGraceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+    streakRewardMultiplier: streakReward.rewardMultiplier,
+    streakRewardBonusAmount: 0,
+    claimRewardAmount: 0,
+    nextStreakTier,
+    nextClaimRewardAmount: 0,
   }
 }
 
 function buildReturnObjectiveSnapshot(
   state: SaveReturnObjectiveStateV1,
+  streakState: SaveReturnObjectiveStreakStateV1,
+  nowEpochMs: number = Date.now(),
 ): ReturnObjectiveStateSnapshot {
   const normalized = normalizeReturnObjectiveState(state)
+  const streakDecay = resolveReturnObjectiveStreakDecay(streakState, nowEpochMs)
+  const streakTier = streakDecay.effectiveTier
+  const nextStreakTier = clampReturnObjectiveStreakTier(streakTier + 1)
   if (normalized.activeObjectiveId === null) {
-    return createEmptyReturnObjectiveSnapshot(normalized.assignmentCycle)
+    return createEmptyReturnObjectiveSnapshot(normalized.assignmentCycle, streakTier)
   }
 
   const objectiveConfig = getReturnObjectiveConfig(normalized.activeObjectiveId)
@@ -513,6 +609,11 @@ function buildReturnObjectiveSnapshot(
   const isCompleted =
     normalized.completedAtEpochMs !== null || progressValue >= objectiveConfig.targetValue
   const isClaimed = normalized.claimedAtEpochMs !== null
+  const streakReward = calculateReturnObjectiveStreakReward(objectiveConfig.rewardAmount, streakTier)
+  const nextStreakReward = calculateReturnObjectiveStreakReward(
+    objectiveConfig.rewardAmount,
+    nextStreakTier,
+  )
 
   return {
     activeObjectiveId: normalized.activeObjectiveId,
@@ -528,6 +629,14 @@ function buildReturnObjectiveSnapshot(
     assignmentCycle: normalized.assignmentCycle,
     isCompleted,
     isClaimed,
+    streakTier: streakReward.streakTier,
+    streakMaxTier: returnObjectiveStreakConfig.maxTier,
+    streakGraceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+    streakRewardMultiplier: streakReward.rewardMultiplier,
+    streakRewardBonusAmount: streakReward.streakBonusAmount,
+    claimRewardAmount: streakReward.totalRewardAmount,
+    nextStreakTier,
+    nextClaimRewardAmount: nextStreakReward.totalRewardAmount,
   }
 }
 
@@ -596,6 +705,10 @@ export function createGameServices(
     game.registry.set(RANCH_ANIMALS_REGISTRY_KEY, [])
     game.registry.set(FTUE_STATE_REGISTRY_KEY, createDefaultFtueSaveState())
     game.registry.set(RETURN_OBJECTIVE_STATE_REGISTRY_KEY, createDefaultReturnObjectiveSaveState())
+    game.registry.set(
+      RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY,
+      createDefaultReturnObjectiveStreakSaveState(),
+    )
     game.registry.set(EXPANSION_TIER_REGISTRY_KEY, getDefaultExpansionTier())
     game.registry.set(UPGRADE_LEVELS_REGISTRY_KEY, createDefaultUpgradeLevels())
     game.registry.set(ACTIVE_SCENE_REGISTRY_KEY, null)
@@ -713,8 +826,21 @@ export function createGameServices(
     })
   }
 
+  const readReturnObjectiveStreakState = (): SaveReturnObjectiveStreakStateV1 => {
+    const rawState = game.registry.get(RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY)
+    if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+      return createDefaultReturnObjectiveStreakSaveState()
+    }
+
+    const state = rawState as Partial<SaveReturnObjectiveStreakStateV1>
+    return normalizeReturnObjectiveStreakState({
+      tier: state.tier ?? 0,
+      lastClaimedAtEpochMs: state.lastClaimedAtEpochMs ?? null,
+    })
+  }
+
   const getReturnObjectiveStateSnapshot = (): ReturnObjectiveStateSnapshot => {
-    return buildReturnObjectiveSnapshot(readReturnObjectiveState())
+    return buildReturnObjectiveSnapshot(readReturnObjectiveState(), readReturnObjectiveStreakState())
   }
 
   const readProgressionStateForObjectiveAssignment = (): SaveProgressionStateV1 => {
@@ -735,7 +861,7 @@ export function createGameServices(
   ): ReturnObjectiveStateSnapshot => {
     const normalized = normalizeReturnObjectiveState(state)
     game.registry.set(RETURN_OBJECTIVE_STATE_REGISTRY_KEY, normalized)
-    const snapshot = buildReturnObjectiveSnapshot(normalized)
+    const snapshot = buildReturnObjectiveSnapshot(normalized, readReturnObjectiveStreakState())
 
     if (options.emitChangedEvent !== false) {
       game.events.emit(RETURN_OBJECTIVE_CHANGED_EVENT, snapshot)
@@ -746,6 +872,22 @@ export function createGameServices(
     }
 
     return snapshot
+  }
+
+  const setReturnObjectiveStreakState = (
+    state: SaveReturnObjectiveStreakStateV1,
+    options: {
+      persist?: boolean
+    } = {},
+  ): SaveReturnObjectiveStreakStateV1 => {
+    const normalized = normalizeReturnObjectiveStreakState(state)
+    game.registry.set(RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY, normalized)
+
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
+
+    return normalized
   }
 
   const assignDeterministicReturnObjective = (source: string): ReturnObjectiveStateSnapshot => {
@@ -870,6 +1012,7 @@ export function createGameServices(
     const ranchSnapshot = readRanchStateSnapshot()
     const ftueState = readFtueState()
     const returnObjectiveState = readReturnObjectiveState()
+    const returnObjectiveStreakState = readReturnObjectiveStreakState()
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
       metadata: {
@@ -885,6 +1028,7 @@ export function createGameServices(
       },
       ftue: ftueState,
       returnObjective: returnObjectiveState,
+      returnObjectiveStreak: returnObjectiveStreakState,
       ranch: {
         crops: ranchSnapshot.crops,
         animals: ranchSnapshot.animals,
@@ -1325,7 +1469,9 @@ export function createGameServices(
   ): ReturnObjectiveClaimResult => {
     const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
     const currentState = readReturnObjectiveState()
-    const currentSnapshot = buildReturnObjectiveSnapshot(currentState)
+    const currentStreakState = readReturnObjectiveStreakState()
+    const now = Date.now()
+    const currentSnapshot = buildReturnObjectiveSnapshot(currentState, currentStreakState, now)
 
     if (currentState.activeObjectiveId === null) {
       return {
@@ -1344,7 +1490,7 @@ export function createGameServices(
     if (currentState.claimedAtEpochMs !== null) {
       return {
         result: 'already_claimed',
-        rewardAmount: objectiveConfig.rewardAmount,
+        rewardAmount: currentSnapshot.claimRewardAmount,
         balance: getCurrencyBalance(),
         state: currentSnapshot,
       }
@@ -1353,22 +1499,34 @@ export function createGameServices(
     if (!isCompleted) {
       return {
         result: 'not_completed',
-        rewardAmount: objectiveConfig.rewardAmount,
+        rewardAmount: currentSnapshot.claimRewardAmount,
         balance: getCurrencyBalance(),
         state: currentSnapshot,
       }
     }
 
-    const now = Date.now()
+    const streakDecay = resolveReturnObjectiveStreakDecay(currentStreakState, now)
+    const previousTier = clampReturnObjectiveStreakTier(currentStreakState.tier)
+    const effectiveTierBeforeClaim = streakDecay.effectiveTier
+    const nextStreakTier = clampReturnObjectiveStreakTier(effectiveTierBeforeClaim + 1)
+    const claimReward = calculateReturnObjectiveStreakReward(objectiveConfig.rewardAmount, nextStreakTier)
+
     setReturnObjectiveState({
       ...currentState,
       completedAtEpochMs: currentState.completedAtEpochMs ?? now,
       claimedAtEpochMs: now,
       assignmentCycle: currentState.assignmentCycle + 1,
     })
+    setReturnObjectiveStreakState(
+      {
+        tier: nextStreakTier,
+        lastClaimedAtEpochMs: now,
+      },
+      { persist: false },
+    )
 
     const balance = addCurrency(
-      objectiveConfig.rewardAmount,
+      claimReward.totalRewardAmount,
       `return_objective_claim:${objectiveConfig.id}`,
     )
 
@@ -1377,8 +1535,49 @@ export function createGameServices(
       goalId: objectiveConfig.goalId,
       metric: objectiveConfig.metric,
       targetValue: objectiveConfig.targetValue,
-      rewardAmount: objectiveConfig.rewardAmount,
+      rewardAmount: claimReward.totalRewardAmount,
       balance,
+      source: normalizedSource,
+      eventTimestampMs: now,
+    })
+
+    if (streakDecay.didDecay) {
+      telemetry.track('streak_reset', {
+        previousTier,
+        resetToTier: effectiveTierBeforeClaim,
+        nextTier: nextStreakTier,
+        elapsedMsSinceClaim: streakDecay.elapsedMsSinceClaim ?? 0,
+        missedGraceWindows: streakDecay.missedGraceWindows,
+        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+        source: normalizedSource,
+        eventTimestampMs: now,
+      })
+    }
+
+    if (effectiveTierBeforeClaim <= 0) {
+      telemetry.track('streak_started', {
+        streakTier: nextStreakTier,
+        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+        source: normalizedSource,
+        eventTimestampMs: now,
+      })
+    } else if (nextStreakTier > effectiveTierBeforeClaim) {
+      telemetry.track('streak_advanced', {
+        previousTier: effectiveTierBeforeClaim,
+        nextTier: nextStreakTier,
+        graceWindowMs: returnObjectiveStreakConfig.graceWindowMs,
+        source: normalizedSource,
+        eventTimestampMs: now,
+      })
+    }
+
+    telemetry.track('streak_claim_bonus', {
+      objectiveId: objectiveConfig.id,
+      baseRewardAmount: claimReward.baseRewardAmount,
+      streakTier: claimReward.streakTier,
+      rewardMultiplier: claimReward.rewardMultiplier,
+      rewardBonusAmount: claimReward.streakBonusAmount,
+      totalRewardAmount: claimReward.totalRewardAmount,
       source: normalizedSource,
       eventTimestampMs: now,
     })
@@ -1387,7 +1586,7 @@ export function createGameServices(
 
     return {
       result: 'claimed',
-      rewardAmount: objectiveConfig.rewardAmount,
+      rewardAmount: claimReward.totalRewardAmount,
       balance,
       state: nextState,
     }
@@ -1402,6 +1601,10 @@ export function createGameServices(
       game.registry.set(
         RETURN_OBJECTIVE_STATE_REGISTRY_KEY,
         normalizeReturnObjectiveState(saveState.returnObjective),
+      )
+      game.registry.set(
+        RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY,
+        normalizeReturnObjectiveStreakState(saveState.returnObjectiveStreak),
       )
       game.registry.set(
         EXPANSION_TIER_REGISTRY_KEY,
@@ -1542,6 +1745,7 @@ export function createGameServices(
     }
 
     setDefaultRuntimeState()
+    ensureReturnObjectiveAssignedForSession('boot_default')
     preferredStartupScene = SCENE_KEYS.ranch
     pendingReturnSessionSummary = null
 

@@ -10,6 +10,7 @@ import { getGameServices } from '../systems/runtime'
 
 const SMOKE_QUERY_PARAM = 'smokeTest'
 const SMOKE_WINDOW_KEY = '__TINY_RANCH_SMOKE__'
+const SAVE_STORAGE_KEY = 'tiny-ranch:save-state'
 const DEFAULT_READY_TIMEOUT_MS = 15_000
 const POLL_INTERVAL_MS = 50
 const SMOKE_TILE = Object.freeze({ x: 3, y: 10 })
@@ -81,10 +82,33 @@ interface FrameHealthMetrics {
   longFrameThresholdMs: number
 }
 
+interface ReturnObjectiveSnapshot {
+  activeObjectiveId: string | null
+  metric: 'harvest_count' | 'sell_value' | null
+  progressValue: number
+  targetValue: number
+  rewardAmount: number
+  assignmentCycle: number
+  streakTier: number
+  claimRewardAmount: number
+  nextStreakTier: number
+  nextClaimRewardAmount: number
+}
+
+interface ReturnObjectiveClaimDebugResult {
+  result: 'claimed' | 'not_completed' | 'already_claimed' | 'no_active_objective'
+  awardedRewardAmount: number
+  awardedStreakTier: number
+  assignmentCycleAfterClaim: number
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
   getSnapshot(): SmokeSnapshot
+  getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
+  debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
+  debugPersistLegacySaveWithoutStreak(): void
   getTileScreenPoint(tileX: number, tileY: number): ScreenPoint
   debugGetPlantedCropTiles(): Array<{ x: number; y: number }>
   debugForceCropToMature(tileX: number, tileY: number): void
@@ -422,6 +446,66 @@ function getSnapshot(game: Phaser.Game): SmokeSnapshot {
   }
 }
 
+function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const snapshot = services.getReturnObjectiveStateSnapshot()
+
+  return {
+    activeObjectiveId: snapshot.activeObjectiveId,
+    metric: snapshot.metric,
+    progressValue: snapshot.progressValue,
+    targetValue: snapshot.targetValue,
+    rewardAmount: snapshot.rewardAmount,
+    assignmentCycle: snapshot.assignmentCycle,
+    streakTier: snapshot.streakTier,
+    claimRewardAmount: snapshot.claimRewardAmount,
+    nextStreakTier: snapshot.nextStreakTier,
+    nextClaimRewardAmount: snapshot.nextClaimRewardAmount,
+  }
+}
+
+function debugClaimCurrentReturnObjective(game: Phaser.Game): ReturnObjectiveClaimDebugResult {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const currentSnapshot = services.getReturnObjectiveStateSnapshot()
+
+  if (currentSnapshot.activeObjectiveId === null || currentSnapshot.metric === null) {
+    throw new Error('No active return objective available in smoke harness.')
+  }
+
+  const remainingProgress = Math.max(0, currentSnapshot.targetValue - currentSnapshot.progressValue)
+  if (remainingProgress > 0) {
+    services.progressReturnObjective(
+      currentSnapshot.metric,
+      remainingProgress,
+      'smoke:return_objective_complete',
+    )
+  }
+
+  const claim = services.claimReturnObjectiveReward('smoke:return_objective_claim')
+  if (claim.result !== 'claimed') {
+    throw new Error(`Expected claimed return objective result in smoke harness, got "${claim.result}".`)
+  }
+
+  return {
+    result: claim.result,
+    awardedRewardAmount: claim.rewardAmount,
+    awardedStreakTier: claim.state.streakTier,
+    assignmentCycleAfterClaim: claim.state.assignmentCycle,
+  }
+}
+
+function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const saveState = services.saveGameState()
+  const legacyPayload = { ...(saveState as unknown as Record<string, unknown>) }
+  delete legacyPayload.returnObjectiveStreak
+
+  window.localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(legacyPayload))
+}
+
 export function installSmokeHarness(game: Phaser.Game): void {
   if (!isSmokeModeEnabled()) {
     return
@@ -435,6 +519,12 @@ export function installSmokeHarness(game: Phaser.Game): void {
     },
     runCoreLoopFlow: (): CoreLoopRunResult => runCoreLoopFlow(game),
     getSnapshot: (): SmokeSnapshot => getSnapshot(game),
+    getReturnObjectiveSnapshot: (): ReturnObjectiveSnapshot => getReturnObjectiveSnapshot(game),
+    debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
+      debugClaimCurrentReturnObjective(game),
+    debugPersistLegacySaveWithoutStreak: (): void => {
+      debugPersistLegacySaveWithoutStreak(game)
+    },
     getTileScreenPoint: (tileX: number, tileY: number): ScreenPoint =>
       getTileScreenPoint(game, tileX, tileY),
     debugGetPlantedCropTiles: (): Array<{ x: number; y: number }> => debugGetPlantedCropTiles(game),

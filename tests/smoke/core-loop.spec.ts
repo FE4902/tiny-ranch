@@ -35,6 +35,26 @@ type FrameHealthMetrics = {
   longFrameThresholdMs: number
 }
 
+type ReturnObjectiveSnapshot = {
+  activeObjectiveId: string | null
+  metric: 'harvest_count' | 'sell_value' | null
+  progressValue: number
+  targetValue: number
+  rewardAmount: number
+  assignmentCycle: number
+  streakTier: number
+  claimRewardAmount: number
+  nextStreakTier: number
+  nextClaimRewardAmount: number
+}
+
+type ReturnObjectiveClaimDebugResult = {
+  result: 'claimed' | 'not_completed' | 'already_claimed' | 'no_active_objective'
+  awardedRewardAmount: number
+  awardedStreakTier: number
+  assignmentCycleAfterClaim: number
+}
+
 async function waitForSmokeHarness(page: Page): Promise<void> {
   await page.waitForFunction(
     (harnessKey: string) => {
@@ -130,6 +150,54 @@ async function stopFrameHealthSampling(page: Page): Promise<FrameHealthMetrics> 
   }, SMOKE_HARNESS_KEY)
 }
 
+async function getReturnObjectiveSnapshot(page: Page): Promise<ReturnObjectiveSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getReturnObjectiveSnapshot: () => ReturnObjectiveSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getReturnObjectiveSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function claimCurrentReturnObjective(page: Page): Promise<ReturnObjectiveClaimDebugResult> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugClaimCurrentReturnObjective: () => ReturnObjectiveClaimDebugResult
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.debugClaimCurrentReturnObjective()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function persistLegacySaveWithoutStreak(page: Page): Promise<void> {
+  await page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugPersistLegacySaveWithoutStreak: () => void
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    harness.debugPersistLegacySaveWithoutStreak()
+  }, SMOKE_HARNESS_KEY)
+}
+
 test('launch -> plant -> harvest -> sell -> expansion -> reload save', async ({ page }, testInfo) => {
   await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
@@ -189,4 +257,47 @@ test('launch -> plant -> harvest -> sell -> expansion -> reload save', async ({ 
   expect(reloadedSnapshot.expansionTier).toBe(2)
   expect(reloadedSnapshot.currency).toBe(coreLoopResult.currencyAfterPurchase)
   expect(reloadedSnapshot.saveStateExists).toBe(true)
+})
+
+test('return objective streak increments on consecutive claims and survives reload', async ({ page }) => {
+  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const initialSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(initialSnapshot.activeObjectiveId).not.toBeNull()
+  expect(initialSnapshot.streakTier).toBe(0)
+
+  const firstClaim = await claimCurrentReturnObjective(page)
+  expect(firstClaim.result).toBe('claimed')
+  expect(firstClaim.awardedStreakTier).toBe(1)
+
+  const secondClaim = await claimCurrentReturnObjective(page)
+  expect(secondClaim.result).toBe('claimed')
+  expect(secondClaim.awardedStreakTier).toBe(2)
+  expect(secondClaim.assignmentCycleAfterClaim).toBe(firstClaim.assignmentCycleAfterClaim + 1)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const reloadedSnapshot = await getReturnObjectiveSnapshot(page)
+  expect(reloadedSnapshot.activeObjectiveId).not.toBeNull()
+  expect(reloadedSnapshot.streakTier).toBe(2)
+  expect(reloadedSnapshot.assignmentCycle).toBe(secondClaim.assignmentCycleAfterClaim)
+})
+
+test('legacy save payload without streak state hydrates safely', async ({ page }) => {
+  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  await claimCurrentReturnObjective(page)
+  await persistLegacySaveWithoutStreak(page)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const snapshot = await getReturnObjectiveSnapshot(page)
+  expect(snapshot.activeObjectiveId).not.toBeNull()
+  expect(snapshot.streakTier).toBe(0)
+  expect(snapshot.nextStreakTier).toBe(1)
+  expect(snapshot.claimRewardAmount).toBe(snapshot.rewardAmount)
 })
