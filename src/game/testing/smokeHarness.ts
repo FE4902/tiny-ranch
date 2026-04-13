@@ -111,6 +111,7 @@ interface TinyRanchSmokeHarness {
   getSnapshot(): SmokeSnapshot
   getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
+  debugSaveGameState(): unknown
   debugPersistLegacySaveWithoutStreak(): void
   getTileScreenPoint(tileX: number, tileY: number): ScreenPoint
   debugGetPlantedCropTiles(): Array<{ x: number; y: number }>
@@ -516,6 +517,12 @@ function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
   window.localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(legacyPayload))
 }
 
+function debugSaveGameState(game: Phaser.Game): unknown {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  return services.saveGameState()
+}
+
 export function installSmokeHarness(game: Phaser.Game): void {
   if (!isSmokeModeEnabled()) {
     return
@@ -532,6 +539,7 @@ export function installSmokeHarness(game: Phaser.Game): void {
     getReturnObjectiveSnapshot: (): ReturnObjectiveSnapshot => getReturnObjectiveSnapshot(game),
     debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
       debugClaimCurrentReturnObjective(game),
+    debugSaveGameState: (): unknown => debugSaveGameState(game),
     debugPersistLegacySaveWithoutStreak: (): void => {
       debugPersistLegacySaveWithoutStreak(game)
     },

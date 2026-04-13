@@ -1,0 +1,265 @@
+{
+  "fixtures": [
+    {
+      "id": "pre_objective",
+      "description": "Legacy payload without return objective fields migrates with defaults.",
+      "launchFlags": {},
+      "expectedRuntime": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false,
+        "activeObjectiveId": "__NON_NULL__",
+        "streakTier": 0,
+        "nextStreakTier": 1
+      },
+      "expectedResave": {
+        "activeObjectiveId": "__NON_NULL__",
+        "streakTier": 0
+      },
+      "payload": {
+        "schemaVersion": 1,
+        "metadata": {
+          "savedAtEpochMs": 4102444800000
+        },
+        "currency": 87,
+        "inventory": {
+          "turnip": 4,
+          "egg": 2
+        },
+        "progression": {
+          "activeScene": "ranch",
+          "activeSeedId": "turnip",
+          "expansionTier": 2,
+          "upgrades": {
+            "greenhouse_tools": 1,
+            "market_ledger": 0
+          }
+        },
+        "ftue": {
+          "currentStep": null,
+          "completedAtEpochMs": 1700000000000
+        },
+        "ranch": {
+          "crops": [
+            {
+              "seedId": "turnip",
+              "tileX": 3,
+              "tileY": 10,
+              "plantedAtEpochMs": 1700000000000,
+              "stageIndex": 1
+            }
+          ],
+          "animals": [
+            {
+              "id": "animal-chicken-1",
+              "configId": "chicken",
+              "tileX": 10,
+              "tileY": 8,
+              "isActive": true,
+              "isFed": false,
+              "hasProductReady": false,
+              "cycleStartedAtEpochMs": 1700000005000,
+              "nextProductAtEpochMs": 1700000065000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "objective_only",
+      "description": "Legacy objective-only payload gains streak defaults without data loss.",
+      "launchFlags": {},
+      "expectedRuntime": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false,
+        "activeObjectiveId": "sell_value_56",
+        "streakTier": 0,
+        "nextStreakTier": 1
+      },
+      "expectedResave": {
+        "activeObjectiveId": "sell_value_56",
+        "streakTier": 0
+      },
+      "payload": {
+        "schemaVersion": 1,
+        "metadata": {
+          "savedAtEpochMs": 4102444800000
+        },
+        "currency": 132,
+        "inventory": {
+          "turnip": 6
+        },
+        "progression": {
+          "activeScene": "ranch",
+          "activeSeedId": "turnip",
+          "expansionTier": 2,
+          "upgrades": {
+            "greenhouse_tools": 0,
+            "market_ledger": 1
+          }
+        },
+        "ftue": {
+          "currentStep": null,
+          "completedAtEpochMs": 1700000000000
+        },
+        "returnObjective": {
+          "activeObjectiveId": "sell_value_56",
+          "progressValue": 20,
+          "assignedAtEpochMs": 1700000008000,
+          "completedAtEpochMs": null,
+          "claimedAtEpochMs": null,
+          "assignmentCycle": 3
+        },
+        "ranch": {
+          "crops": [
+            {
+              "seedId": "turnip",
+              "tileX": 3,
+              "tileY": 10,
+              "plantedAtEpochMs": 1700000000000,
+              "stageIndex": 2
+            }
+          ],
+          "animals": []
+        }
+      }
+    },
+    {
+      "id": "streak_enabled",
+      "description": "Existing streak payload remains intact during decode and re-save.",
+      "launchFlags": {},
+      "expectedRuntime": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false,
+        "activeObjectiveId": "harvest_turnips_4",
+        "streakTier": 3,
+        "nextStreakTier": 4
+      },
+      "expectedResave": {
+        "activeObjectiveId": "harvest_turnips_4",
+        "streakTier": 3
+      },
+      "payload": {
+        "schemaVersion": 1,
+        "metadata": {
+          "savedAtEpochMs": 4102444800000
+        },
+        "currency": 211,
+        "inventory": {
+          "turnip": 9,
+          "milk": 1
+        },
+        "progression": {
+          "activeScene": "ranch",
+          "activeSeedId": "turnip",
+          "expansionTier": 3,
+          "upgrades": {
+            "greenhouse_tools": 1,
+            "market_ledger": 1
+          }
+        },
+        "ftue": {
+          "currentStep": null,
+          "completedAtEpochMs": 1700000000000
+        },
+        "returnObjective": {
+          "activeObjectiveId": "harvest_turnips_4",
+          "progressValue": 4,
+          "assignedAtEpochMs": 1700000005000,
+          "completedAtEpochMs": 1700000009000,
+          "claimedAtEpochMs": null,
+          "assignmentCycle": 6
+        },
+        "returnObjectiveStreak": {
+          "tier": 3,
+          "lastClaimedAtEpochMs": 4102444700000
+        },
+        "ranch": {
+          "crops": [],
+          "animals": [
+            {
+              "id": "animal-cow-1",
+              "configId": "cow",
+              "tileX": 11,
+              "tileY": 8,
+              "isActive": true,
+              "isFed": true,
+              "hasProductReady": false,
+              "cycleStartedAtEpochMs": 1700000010000,
+              "nextProductAtEpochMs": 1700000080000
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "kill_switch_fallback",
+      "description": "Kill-switch runtime fallback hides objective UI while preserving saved objective/streak payload.",
+      "launchFlags": {
+        "retentionKillSwitch": true
+      },
+      "expectedRuntime": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true,
+        "activeObjectiveId": null,
+        "streakTier": 0,
+        "nextStreakTier": 0
+      },
+      "expectedResave": {
+        "activeObjectiveId": "sell_value_56",
+        "streakTier": 2
+      },
+      "payload": {
+        "schemaVersion": 1,
+        "metadata": {
+          "savedAtEpochMs": 4102444800000
+        },
+        "currency": 156,
+        "inventory": {
+          "turnip": 3,
+          "wool": 2
+        },
+        "progression": {
+          "activeScene": "ranch",
+          "activeSeedId": "turnip",
+          "expansionTier": 2,
+          "upgrades": {
+            "greenhouse_tools": 0,
+            "market_ledger": 1
+          }
+        },
+        "ftue": {
+          "currentStep": null,
+          "completedAtEpochMs": 1700000000000
+        },
+        "returnObjective": {
+          "activeObjectiveId": "sell_value_56",
+          "progressValue": 24,
+          "assignedAtEpochMs": 1700000005000,
+          "completedAtEpochMs": null,
+          "claimedAtEpochMs": null,
+          "assignmentCycle": 7
+        },
+        "returnObjectiveStreak": {
+          "tier": 2,
+          "lastClaimedAtEpochMs": 4102444700000
+        },
+        "ranch": {
+          "crops": [
+            {
+              "seedId": "turnip",
+              "tileX": 4,
+              "tileY": 10,
+              "plantedAtEpochMs": 1700000000000,
+              "stageIndex": 0
+            }
+          ],
+          "animals": []
+        }
+      }
+    }
+  ]
+}

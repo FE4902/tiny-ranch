@@ -89,3 +89,32 @@ jobs:
           name: playwright-report
           path: playwright-report
           if-no-files-found: ignore
+
+  save-migration-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run save migration matrix smoke suite
+        run: npm run test:smoke:save-migration
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-save-migration
+          path: playwright-report
+          if-no-files-found: ignore

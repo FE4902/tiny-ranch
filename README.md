@@ -56,6 +56,7 @@ Current suites:
 
 - `tests/smoke/core-loop.spec.ts`: deterministic harness-driven core loop regression on desktop + mobile.
 - `tests/smoke/touch-path.spec.ts`: mobile-only real touch-path regression that uses `page.touchscreen.tap(...)` for move -> plant -> harvest -> sell -> expansion, then verifies save persistence after reload.
+- `tests/smoke/save-migration-matrix.spec.ts`: fixture-driven save migration compatibility matrix for retention objective/streak evolution and fallback flags.
 
 For failure triage:
 
@@ -67,6 +68,24 @@ For failure triage:
    `npx playwright show-trace test-results/**/trace.zip`.
 4. Capture an interactive repro and inspect smoke state in DevTools:
    `npm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
+
+### Save migration compatibility matrix
+
+Run the retention save migration matrix gate with:
+
+```bash
+npm run test:smoke:save-migration
+```
+
+This gate replays representative legacy save fixtures (`pre_objective`, `objective_only`,
+`streak_enabled`, `kill_switch_fallback`) from
+`tests/fixtures/save/save-migration-matrix.fixture.json`, validates runtime retention defaults,
+and verifies re-save compatibility through `debugSaveGameState`.
+
+CI runs the same command in `.github/workflows/bundle-budget-gate.yml` (`save-migration-smoke` job).
+
+For fixture updates and migration-failure triage, see
+`docs/ver-93-save-migration-compatibility-matrix.md`.
 
 ### Retention telemetry contract checks
 
