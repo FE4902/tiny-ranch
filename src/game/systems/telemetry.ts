@@ -198,7 +198,17 @@ export const TELEMETRY_EVENT_SCHEMA = {
   ranch_interaction: ['targetId', 'targetLabel', 'targetType'],
   ranch_map_ready: ['widthTiles', 'heightTiles', 'zones', 'collisions', 'landmarks', 'spawnTile'],
   ranch_state_hydrated: ['restoredCrops', 'restoredAnimals', 'activeSeedId'],
+  retention_tuning_pack_loaded: [
+    'requestedTuningPackId',
+    'tuningPackId',
+    'tuningPackVersion',
+    'fallbackReason',
+    'eventTimestampMs',
+  ],
   return_objective_assigned: [
+    'tuningPackId',
+    'tuningPackVersion',
+    'fallbackReason',
     'objectiveId',
     'goalId',
     'metric',
@@ -209,6 +219,9 @@ export const TELEMETRY_EVENT_SCHEMA = {
     'eventTimestampMs',
   ],
   return_objective_progressed: [
+    'tuningPackId',
+    'tuningPackVersion',
+    'fallbackReason',
     'objectiveId',
     'goalId',
     'metric',
@@ -220,6 +233,9 @@ export const TELEMETRY_EVENT_SCHEMA = {
     'eventTimestampMs',
   ],
   return_objective_completed: [
+    'tuningPackId',
+    'tuningPackVersion',
+    'fallbackReason',
     'objectiveId',
     'goalId',
     'metric',
@@ -229,6 +245,9 @@ export const TELEMETRY_EVENT_SCHEMA = {
     'eventTimestampMs',
   ],
   return_objective_claimed: [
+    'tuningPackId',
+    'tuningPackVersion',
+    'fallbackReason',
     'objectiveId',
     'goalId',
     'metric',

@@ -1,3 +1,5 @@
+import { retentionFlagDefaults } from './retentionTuningPack'
+
 export interface RetentionFeatureFlags {
   objectiveLoopUiEnabled: boolean
   streakBonusEnabled: boolean
@@ -5,9 +7,9 @@ export interface RetentionFeatureFlags {
 }
 
 const SOURCE_CONTROLLED_RETENTION_FLAG_DEFAULTS: Readonly<RetentionFeatureFlags> = Object.freeze({
-  objectiveLoopUiEnabled: true,
-  streakBonusEnabled: true,
-  retentionKillSwitchEnabled: false,
+  objectiveLoopUiEnabled: retentionFlagDefaults.objectiveLoopUiEnabled,
+  streakBonusEnabled: retentionFlagDefaults.streakBonusEnabled,
+  retentionKillSwitchEnabled: retentionFlagDefaults.retentionKillSwitchEnabled,
 })
 
 function parseBooleanQueryValue(value: string | null): boolean | null {
@@ -86,4 +88,3 @@ export const retentionFeatureFlags: Readonly<RetentionFeatureFlags> = Object.fre
   streakBonusEnabled: retentionEnhancementsEnabled && objectiveLoopUiEnabled && streakBonusEnabled,
   retentionKillSwitchEnabled,
 })
-

@@ -7,6 +7,7 @@ Add a deterministic economy simulation for return objective rewards so reward tu
 ## Source Of Truth
 
 - Shared tuning config: `src/game/config/returnObjectiveEconomyTuning.shared.js`
+- Runtime tuning-pack selection: `src/game/config/retentionTuningPack.ts`
 - Retention rollout flags: `src/game/config/retentionFlags.ts`
 - Gameplay consumers:
   - `src/game/config/returnObjectives.ts`
@@ -101,3 +102,5 @@ Smoke-only query overrides (for local validation) are available when `smokeTest=
 Long-run save/load + rollout-flag soak validation is documented in:
 
 - `docs/ver-96-retention-soak-harness.md`
+- Versioned tuning-pack loading/fallback is documented in:
+  - `docs/ver-97-retention-tuning-pack-loader.md`

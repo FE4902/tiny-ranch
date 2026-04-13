@@ -43,6 +43,10 @@ import {
   type ReturnObjectiveMetric,
 } from '../config/returnObjectives'
 import { retentionFeatureFlags } from '../config/retentionFlags'
+import {
+  activeRetentionTuningPack,
+  getRetentionTuningTelemetryPayload,
+} from '../config/retentionTuningPack'
 import { PLAYABLE_SCENES, SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { PerformanceTracker } from './performance'
 import {
@@ -744,6 +748,15 @@ export function createGameServices(
   }
 
   setDefaultRuntimeState()
+  const retentionTuningTelemetryPayload = getRetentionTuningTelemetryPayload()
+
+  telemetry.track('retention_tuning_pack_loaded', {
+    requestedTuningPackId: activeRetentionTuningPack.requestedPackId,
+    tuningPackId: retentionTuningTelemetryPayload.tuningPackId,
+    tuningPackVersion: retentionTuningTelemetryPayload.tuningPackVersion,
+    fallbackReason: retentionTuningTelemetryPayload.fallbackReason,
+    eventTimestampMs: Date.now(),
+  })
 
   const readInventoryState = (): Record<string, number> => {
     const state = game.registry.get(INVENTORY_REGISTRY_KEY)
@@ -944,6 +957,9 @@ export function createGameServices(
     const snapshot = setReturnObjectiveState(nextState)
 
     telemetry.track('return_objective_assigned', {
+      tuningPackId: retentionTuningTelemetryPayload.tuningPackId,
+      tuningPackVersion: retentionTuningTelemetryPayload.tuningPackVersion,
+      fallbackReason: retentionTuningTelemetryPayload.fallbackReason,
       objectiveId: objectiveConfig.id,
       goalId: objectiveConfig.goalId,
       metric: objectiveConfig.metric,
@@ -1479,6 +1495,9 @@ export function createGameServices(
     const nextSnapshot = setReturnObjectiveState(nextState)
 
     telemetry.track('return_objective_progressed', {
+      tuningPackId: retentionTuningTelemetryPayload.tuningPackId,
+      tuningPackVersion: retentionTuningTelemetryPayload.tuningPackVersion,
+      fallbackReason: retentionTuningTelemetryPayload.fallbackReason,
       objectiveId: objectiveConfig.id,
       goalId: objectiveConfig.goalId,
       metric: objectiveConfig.metric,
@@ -1492,6 +1511,9 @@ export function createGameServices(
 
     if (currentState.completedAtEpochMs === null && completedAtEpochMs !== null) {
       telemetry.track('return_objective_completed', {
+        tuningPackId: retentionTuningTelemetryPayload.tuningPackId,
+        tuningPackVersion: retentionTuningTelemetryPayload.tuningPackVersion,
+        fallbackReason: retentionTuningTelemetryPayload.fallbackReason,
         objectiveId: objectiveConfig.id,
         goalId: objectiveConfig.goalId,
         metric: objectiveConfig.metric,
@@ -1591,6 +1613,9 @@ export function createGameServices(
     )
 
     telemetry.track('return_objective_claimed', {
+      tuningPackId: retentionTuningTelemetryPayload.tuningPackId,
+      tuningPackVersion: retentionTuningTelemetryPayload.tuningPackVersion,
+      fallbackReason: retentionTuningTelemetryPayload.fallbackReason,
       objectiveId: objectiveConfig.id,
       goalId: objectiveConfig.goalId,
       metric: objectiveConfig.metric,

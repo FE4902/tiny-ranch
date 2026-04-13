@@ -1,7 +1,10 @@
 import {
-  returnObjectiveEconomyTuning,
   type ReturnObjectiveEconomyStreakTierConfig,
 } from './returnObjectiveEconomyTuning.shared.js'
+import {
+  retentionObjectiveEconomyTuning,
+  retentionRewardCaps,
+} from './retentionTuningPack'
 
 export interface ReturnObjectiveStreakTierConfig {
   tier: number
@@ -60,14 +63,22 @@ function defineReturnObjectiveStreakConfig(
     if (
       !Number.isFinite(tierConfig.rewardMultiplier) ||
       tierConfig.rewardMultiplier < 1 ||
-      tierConfig.rewardMultiplier > 5
+      tierConfig.rewardMultiplier > retentionRewardCaps.maxRewardMultiplier
     ) {
-      throw new Error(`Return objective streak tier ${tier} rewardMultiplier must be between 1 and 5`)
+      throw new Error(
+        `Return objective streak tier ${tier} rewardMultiplier must be between 1 and ${retentionRewardCaps.maxRewardMultiplier}`,
+      )
     }
 
     const rewardBonus = Math.floor(tierConfig.rewardBonus)
-    if (!Number.isFinite(rewardBonus) || rewardBonus < 0) {
-      throw new Error(`Return objective streak tier ${tier} rewardBonus must be a non-negative integer`)
+    if (
+      !Number.isFinite(rewardBonus) ||
+      rewardBonus < 0 ||
+      rewardBonus > retentionRewardCaps.maxStreakRewardBonusAmount
+    ) {
+      throw new Error(
+        `Return objective streak tier ${tier} rewardBonus must be between 0 and ${retentionRewardCaps.maxStreakRewardBonusAmount}`,
+      )
     }
 
     return {
@@ -100,9 +111,9 @@ function cloneStreakTierConfig(
 }
 
 const RETURN_OBJECTIVE_STREAK_CONFIG = defineReturnObjectiveStreakConfig({
-  maxTier: returnObjectiveEconomyTuning.streak.maxTier,
-  graceWindowMs: returnObjectiveEconomyTuning.streak.graceWindowMs,
-  tiers: returnObjectiveEconomyTuning.streak.tiers.map((tierConfig) =>
+  maxTier: retentionObjectiveEconomyTuning.streak.maxTier,
+  graceWindowMs: retentionObjectiveEconomyTuning.streak.graceWindowMs,
+  tiers: retentionObjectiveEconomyTuning.streak.tiers.map((tierConfig) =>
     cloneStreakTierConfig(tierConfig),
   ),
 })
@@ -140,10 +151,16 @@ export function calculateReturnObjectiveStreakReward(
   tier: number,
 ): ReturnObjectiveStreakRewardBreakdown {
   const normalizedBaseReward =
-    Number.isFinite(baseRewardAmount) && baseRewardAmount > 0 ? Math.floor(baseRewardAmount) : 0
+    Number.isFinite(baseRewardAmount) && baseRewardAmount > 0
+      ? Math.min(Math.floor(baseRewardAmount), retentionRewardCaps.maxObjectiveRewardAmount)
+      : 0
   const tierConfig = getReturnObjectiveStreakTierConfig(tier)
   const multipliedReward = Math.floor(normalizedBaseReward * tierConfig.rewardMultiplier)
-  const totalRewardAmount = Math.max(0, multipliedReward + tierConfig.rewardBonus)
+  const unclampedTotalRewardAmount = Math.max(0, multipliedReward + tierConfig.rewardBonus)
+  const totalRewardAmount = Math.min(
+    unclampedTotalRewardAmount,
+    retentionRewardCaps.maxClaimRewardAmount,
+  )
 
   return {
     streakTier: tierConfig.tier,

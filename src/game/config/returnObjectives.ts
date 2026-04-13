@@ -1,8 +1,11 @@
 import {
-  returnObjectiveEconomyTuning,
   type ReturnObjectiveEconomyObjectiveConfig,
   type ReturnObjectiveMetric,
 } from './returnObjectiveEconomyTuning.shared.js'
+import {
+  retentionObjectiveEconomyTuning,
+  retentionRewardCaps,
+} from './retentionTuningPack'
 
 export type { ReturnObjectiveMetric }
 
@@ -44,13 +47,18 @@ function defineReturnObjectiveConfig(config: ReturnObjectiveConfig): ReturnObjec
     throw new Error(`Return objective "${config.id}" rewardAmount must be > 0`)
   }
 
+  const normalizedRewardAmount = Math.min(
+    config.rewardAmount,
+    retentionRewardCaps.maxObjectiveRewardAmount,
+  )
+
   return {
     id: config.id.trim(),
     goalId: config.goalId.trim(),
     title: config.title.trim(),
     metric: config.metric,
     targetValue: config.targetValue,
-    rewardAmount: config.rewardAmount,
+    rewardAmount: normalizedRewardAmount,
   }
 }
 
@@ -67,7 +75,7 @@ function cloneReturnObjectiveConfig(
   }
 }
 
-const RETURN_OBJECTIVE_CONFIGS = returnObjectiveEconomyTuning.objectives.map((config) =>
+const RETURN_OBJECTIVE_CONFIGS = retentionObjectiveEconomyTuning.objectives.map((config) =>
   defineReturnObjectiveConfig(cloneReturnObjectiveConfig(config)),
 )
 
