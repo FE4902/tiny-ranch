@@ -1,0 +1,440 @@
+{
+  "seed": 691,
+  "soakMultiplier": 8,
+  "saveInterval": 5,
+  "generatedAt": "2026-04-13T12:13:03.774Z",
+  "matrix": [
+    {
+      "caseKey": "daily_claim_streak::000",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::001",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::010",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::011",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::100",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "e97fa83a7f70815ea40ecab396b2c4f5f66851c2be4a2396d54f047b94957aad",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 224,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 0,
+        "currencyEarned": 8064,
+        "currencySpent": 1680,
+        "streakBonusTotal": 0,
+        "finalCurrency": 6384,
+        "finalAssignmentCycle": 224,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::101",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::110",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "2a61a4ba272a9b486c29d6a8b28cbd40f8a32bca6ea4123e566d29fe04efb6cb",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 224,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 0,
+        "currencyEarned": 14700,
+        "currencySpent": 1680,
+        "streakBonusTotal": 6636,
+        "finalCurrency": 13020,
+        "finalAssignmentCycle": 224,
+        "finalStreakTier": 5
+      }
+    },
+    {
+      "caseKey": "daily_claim_streak::111",
+      "scenarioId": "daily_claim_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "3016e10233e71f5d75f3bfe11c1eef00ff18de0da541278a5e400507d1ffc406",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 112,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::000",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::001",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::010",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::011",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": false,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::100",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "380935a8b2878dc12043355f1aa806267cf244b78d0e458817202a4b961f8e29",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 224,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 0,
+        "currencyEarned": 8064,
+        "currencySpent": 1598,
+        "streakBonusTotal": 0,
+        "finalCurrency": 6466,
+        "finalAssignmentCycle": 224,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::101",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::110",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false
+      },
+      "digest": "e18a91de0a09bd37c848421f5a51092bf564377e46e4fb984cbfb35f147018fc",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 224,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 0,
+        "currencyEarned": 14174,
+        "currencySpent": 1598,
+        "streakBonusTotal": 6110,
+        "finalCurrency": 12576,
+        "finalAssignmentCycle": 224,
+        "finalStreakTier": 5
+      }
+    },
+    {
+      "caseKey": "lapse_recovery_streak::111",
+      "scenarioId": "lapse_recovery_streak",
+      "rawFlags": {
+        "objectiveLoopUiEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": true
+      },
+      "effectiveFlags": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true
+      },
+      "digest": "4e61694ae6ae5da6a71eb4978f555dd742624a0127cf74439d8a057e3b8899f6",
+      "stats": {
+        "sessionCount": 224,
+        "claimCount": 0,
+        "saveLoadCount": 45,
+        "cappedSpendCount": 89,
+        "currencyEarned": 0,
+        "currencySpent": 0,
+        "streakBonusTotal": 0,
+        "finalCurrency": 0,
+        "finalAssignmentCycle": 0,
+        "finalStreakTier": 0
+      }
+    }
+  ]
+}

@@ -149,6 +149,18 @@ streak bonus contribution, and reward inflation deltas vs baseline. Guardrail th
 scenario baselines are source-controlled in `src/game/config/returnObjectiveEconomyTuning.shared.js`
 and documented in `docs/ver-91-objective-streak-economy-guardrails.md`.
 
+Run the deterministic retention soak matrix (save/load + flag permutations) with:
+
+```bash
+npm run test:soak:retention
+```
+
+This gate replays long-run retention sessions across all rollout-flag permutations, enforces
+invariants (no stuck objective state, no negative currency drift across save/load), and compares
+per-case replay digests against source-controlled baselines in
+`tests/fixtures/save/retention-soak-baseline.fixture.json`. CI runs the same command in
+`.github/workflows/bundle-budget-gate.yml`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration

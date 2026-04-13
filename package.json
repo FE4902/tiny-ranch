@@ -11,6 +11,7 @@
     "bundle:measure:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run bundle:measure",
     "balance:check": "node scripts/check-expansion-pacing.mjs",
     "balance:check:return-objectives": "node scripts/check-return-objective-balance.mjs",
+    "test:soak:retention": "node scripts/check-retention-soak.mjs",
     "test:telemetry:retention": "node scripts/validate-retention-telemetry-contract.mjs",
     "analytics:retention:cohort": "node scripts/export-retention-cohorts.mjs",
     "test:analytics:retention-cohort": "node scripts/test-retention-cohort-export.mjs",

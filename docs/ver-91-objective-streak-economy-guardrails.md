@@ -95,3 +95,9 @@ Smoke-only query overrides (for local validation) are available when `smokeTest=
    - kill switch path: `npm run test:smoke -- --grep "retention kill switch disables objective boot assignment and claim flow safely"`
 4. Ship once both analytics + smoke checks pass.
 5. Rollback (if needed): set `retentionKillSwitchEnabled` to `true` in the same file, re-run checks, and redeploy.
+
+## Follow-On Stability Gate (VER-96)
+
+Long-run save/load + rollout-flag soak validation is documented in:
+
+- `docs/ver-96-retention-soak-harness.md`
