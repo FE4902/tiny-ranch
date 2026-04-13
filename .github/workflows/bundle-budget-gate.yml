@@ -61,6 +61,27 @@ jobs:
       - name: Run deterministic retention soak matrix
         run: npm run test:soak:retention
 
+  retention-memory-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run mobile retention memory drift gate
+        run: npm run test:soak:retention:memory
+
   core-loop-smoke:
     runs-on: ubuntu-latest
     steps:

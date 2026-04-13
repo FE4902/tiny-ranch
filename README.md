@@ -180,6 +180,17 @@ per-case replay digests against source-controlled baselines in
 `tests/fixtures/save/retention-soak-baseline.fixture.json`. CI runs the same command in
 `.github/workflows/bundle-budget-gate.yml`.
 
+Run the mobile retention memory-drift gate (heap + frame-spike correlation) with:
+
+```bash
+npm run test:soak:retention:memory
+```
+
+This gate runs deterministic retention loops on the mobile Chromium profile, enforces
+source-controlled memory/frame thresholds, and emits JSON diagnostics on failures
+(`caseKey`, sample window, drift metrics, threshold exceeded). For triage and threshold-update
+policy, see `docs/ver-100-mobile-memory-drift-gate.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration

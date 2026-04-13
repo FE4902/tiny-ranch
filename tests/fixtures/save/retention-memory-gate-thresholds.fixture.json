@@ -1,0 +1,70 @@
+{
+  "sampleWindowMs": 80,
+  "saveReloadInterval": 6,
+  "longFrameThresholdMs": 55,
+  "cases": [
+    {
+      "caseKey": "objective-enabled",
+      "sessionCount": 84,
+      "flags": {
+        "retentionObjectiveUi": true,
+        "retentionStreakBonus": false,
+        "retentionKillSwitch": false
+      },
+      "expected": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": false,
+        "claimResult": "claimed"
+      },
+      "thresholds": {
+        "maxNetHeapDriftBytes": 6000000,
+        "maxPeakHeapDriftBytes": 9000000,
+        "maxLongFrameRatio": 0.2,
+        "maxFrameSpikeCorrelation": 0.95
+      }
+    },
+    {
+      "caseKey": "streak-enabled",
+      "sessionCount": 84,
+      "flags": {
+        "retentionObjectiveUi": true,
+        "retentionStreakBonus": true,
+        "retentionKillSwitch": false
+      },
+      "expected": {
+        "objectiveLoopEnabled": true,
+        "streakBonusEnabled": true,
+        "retentionKillSwitchEnabled": false,
+        "claimResult": "claimed"
+      },
+      "thresholds": {
+        "maxNetHeapDriftBytes": 7000000,
+        "maxPeakHeapDriftBytes": 10000000,
+        "maxLongFrameRatio": 0.2,
+        "maxFrameSpikeCorrelation": 0.95
+      }
+    },
+    {
+      "caseKey": "kill-switch",
+      "sessionCount": 84,
+      "flags": {
+        "retentionObjectiveUi": true,
+        "retentionStreakBonus": true,
+        "retentionKillSwitch": true
+      },
+      "expected": {
+        "objectiveLoopEnabled": false,
+        "streakBonusEnabled": false,
+        "retentionKillSwitchEnabled": true,
+        "claimResult": "no_active_objective"
+      },
+      "thresholds": {
+        "maxNetHeapDriftBytes": 5000000,
+        "maxPeakHeapDriftBytes": 8000000,
+        "maxLongFrameRatio": 0.2,
+        "maxFrameSpikeCorrelation": 0.95
+      }
+    }
+  ]
+}

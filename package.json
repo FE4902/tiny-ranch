@@ -12,6 +12,7 @@
     "balance:check": "node scripts/check-expansion-pacing.mjs",
     "balance:check:return-objectives": "node scripts/check-return-objective-balance.mjs",
     "test:soak:retention": "node scripts/check-retention-soak.mjs",
+    "test:soak:retention:memory": "playwright test --project=mobile-chromium tests/smoke/retention-memory-gate.spec.ts",
     "test:retention:tuning-packs": "node scripts/test-retention-tuning-pack-loader.mjs",
     "test:telemetry:retention": "node scripts/validate-retention-telemetry-contract.mjs",
     "analytics:retention:cohort": "node scripts/export-retention-cohorts.mjs",
