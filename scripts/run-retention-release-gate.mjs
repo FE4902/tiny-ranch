@@ -17,11 +17,33 @@ const DEFAULT_RUNTIME_BUDGETS_PATH = path.join(
 )
 const LOG_DIR_NAME = 'logs'
 const REPORT_DIR_NAME = 'reports'
+const REPLAY_PACK_DIR_NAME = 'replay-pack'
 const SUMMARY_JSON_NAME = 'retention-release-gate-summary.json'
 const SUMMARY_MD_NAME = 'retention-release-gate-summary.md'
 const TIMING_JSON_NAME = 'retention-release-gate-runtime-timing.json'
 const TIMING_MD_NAME = 'retention-release-gate-runtime-timing.md'
+const REPLAY_PACK_JSON_NAME = 'retention-release-gate-replay-pack.json'
+const REPLAY_PACK_MD_NAME = 'retention-release-gate-replay-pack.md'
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024
+const REPLAY_CONTEXT_ENV_KEYS = [
+  'CI',
+  'GITHUB_ACTIONS',
+  'GITHUB_RUN_ID',
+  'GITHUB_RUN_ATTEMPT',
+  'GITHUB_SHA',
+  'GITHUB_REF',
+  'GITHUB_REF_NAME',
+  'GITHUB_HEAD_REF',
+  'GITHUB_BASE_REF',
+  'GITHUB_WORKFLOW',
+  'GITHUB_WORKFLOW_REF',
+  'GITHUB_JOB',
+  'RUNNER_OS',
+  'RUNNER_ARCH',
+  'NODE_ENV',
+  'PLAYWRIGHT_BROWSERS_PATH',
+  'npm_config_user_agent',
+]
 
 const STAGE_DEFINITIONS = [
   {
@@ -29,6 +51,7 @@ const STAGE_DEFINITIONS = [
     title: 'Return objective balance check',
     command: ['node', 'scripts/check-return-objective-balance.mjs'],
     docs: ['docs/ver-91-objective-streak-economy-guardrails.md'],
+    fixtureRefs: ['src/game/config/returnObjectiveEconomyTuning.shared.js'],
     kind: 'balance',
     hardBlocker: true,
   },
@@ -44,6 +67,10 @@ const STAGE_DEFINITIONS = [
       '--reporter=json',
     ],
     docs: ['docs/ver-93-save-migration-compatibility-matrix.md'],
+    fixtureRefs: [
+      'tests/smoke/save-migration-matrix.spec.ts',
+      'tests/fixtures/save/save-migration-matrix.fixture.json',
+    ],
     kind: 'playwright',
     hardBlocker: true,
   },
@@ -52,6 +79,10 @@ const STAGE_DEFINITIONS = [
     title: 'Retention soak checks',
     command: ['node', 'scripts/check-retention-soak.mjs'],
     docs: ['docs/ver-96-retention-soak-harness.md'],
+    fixtureRefs: [
+      'src/game/config/returnObjectiveEconomyTuning.shared.js',
+      'tests/fixtures/save/retention-soak-baseline.fixture.json',
+    ],
     kind: 'soak',
     hardBlocker: true,
   },
@@ -67,6 +98,10 @@ const STAGE_DEFINITIONS = [
       '--reporter=json',
     ],
     docs: ['docs/ver-100-mobile-memory-drift-gate.md'],
+    fixtureRefs: [
+      'tests/smoke/retention-memory-gate.spec.ts',
+      'tests/fixtures/save/retention-memory-gate-thresholds.fixture.json',
+    ],
     kind: 'playwright',
     hardBlocker: true,
   },
@@ -75,6 +110,7 @@ const STAGE_DEFINITIONS = [
     title: 'Retention health snapshot',
     command: ['node', 'scripts/report-retention-health.mjs', '--run-playwright'],
     docs: ['docs/ver-101-retention-health-snapshot-gate.md'],
+    fixtureRefs: ['tests/fixtures/analytics/retention-health-thresholds.fixture.json'],
     kind: 'health_snapshot',
     hardBlocker: true,
   },
@@ -246,6 +282,41 @@ function runProcess(command, args, env = {}) {
 
 function toRelativeRepoPath(filePath) {
   return path.relative(repoRoot, filePath)
+}
+
+function normalizeReplayValue(value) {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  if (path.isAbsolute(value)) {
+    const relative = path.relative(repoRoot, value)
+    if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+      return toRelativeRepoPath(value)
+    }
+  }
+
+  return value
+}
+
+function captureReplayContextEnv() {
+  const captured = {}
+  for (const key of REPLAY_CONTEXT_ENV_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(process.env, key)) {
+      continue
+    }
+
+    const value = process.env[key]
+    if (typeof value === 'string' && value.length > 0) {
+      captured[key] = value
+    }
+  }
+
+  return captured
+}
+
+function resolveFixtureRefs(fixtureRefs = []) {
+  return fixtureRefs.map((fixturePath) => toRelativeRepoPath(path.resolve(repoRoot, fixturePath)))
 }
 
 function writeLogs(outputDir, stageId, result) {
@@ -428,6 +499,7 @@ function buildStageResult(definition, options) {
   const command = [...definition.command]
   const env = {}
   const artifacts = []
+  const fixtureRefs = resolveFixtureRefs(definition.fixtureRefs)
   let reportPath = null
   let healthSummaryPath = null
 
@@ -466,17 +538,24 @@ function buildStageResult(definition, options) {
     metrics.error = rawResult.errorMessage
   }
 
+  const envOverrides = Object.fromEntries(
+    Object.entries(env).map(([key, value]) => [key, normalizeReplayValue(value)]),
+  )
+
   return {
     id: definition.id,
     title: definition.title,
     status: rawResult.exitCode === 0 ? 'pass' : 'fail',
     hardBlocker: definition.hardBlocker,
     command: formatCommand(command),
+    commandParts: command,
     docs: definition.docs,
+    fixtureRefs,
     durationMs: rawResult.durationMs,
     startedAt: rawResult.startedAt,
     finishedAt: rawResult.finishedAt,
     exitCode: rawResult.exitCode,
+    envOverrides,
     metrics,
     artifactPaths: artifacts,
     stdoutLogPath: toRelativeRepoPath(logPaths.stdoutPath),
@@ -491,11 +570,14 @@ function buildSkippedStageResult(definition, blockedByStageId) {
     status: 'skipped',
     hardBlocker: definition.hardBlocker,
     command: formatCommand(definition.command),
+    commandParts: [...definition.command],
     docs: definition.docs,
+    fixtureRefs: resolveFixtureRefs(definition.fixtureRefs),
     durationMs: 0,
     startedAt: null,
     finishedAt: null,
     exitCode: null,
+    envOverrides: {},
     metrics: {},
     artifactPaths: [],
     stdoutLogPath: null,
@@ -598,6 +680,141 @@ function buildRuntimeTimingStages(stageResults, runtimeBudgets, totalDurationMs)
       overBudgetMs,
     }
   })
+}
+
+function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTiming, runtimeBudgets) {
+  const stageRecords = stageResults.map((stage) => ({
+    stageId: stage.id,
+    stageTitle: stage.title,
+    status: stage.status,
+    hardBlocker: stage.hardBlocker,
+    skipReason: stage.skipReason ?? null,
+    command: {
+      binary: stage.commandParts[0] ?? null,
+      args: stage.commandParts.slice(1),
+      display: stage.command,
+      cwd: '.',
+    },
+    envOverrides: stage.envOverrides,
+    fixtureRefs: stage.fixtureRefs,
+    docs: stage.docs,
+    runtime: {
+      startedAt: stage.startedAt,
+      finishedAt: stage.finishedAt,
+      durationMs: stage.durationMs,
+      exitCode: stage.exitCode,
+    },
+    artifacts: {
+      stdoutLogPath: stage.stdoutLogPath,
+      stderrLogPath: stage.stderrLogPath,
+      stageArtifactPaths: stage.artifactPaths,
+    },
+    metricSummary: buildMetricSummary(stage),
+  }))
+
+  const failedStages = stageRecords
+    .filter((stage) => stage.status === 'fail')
+    .map((stage) => ({
+      stageId: stage.stageId,
+      stageTitle: stage.stageTitle,
+      command: stage.command.display,
+      replayCommand: `npm run gate:retention:replay -- --stage=${stage.stageId}`,
+      stdoutLogPath: stage.artifacts.stdoutLogPath,
+      stderrLogPath: stage.artifacts.stderrLogPath,
+    }))
+
+  return {
+    schemaVersion: 1,
+    issueIdentifier: 'VER-105',
+    generatedAt,
+    replayDefaults: {
+      packPath: null,
+      defaultReplayCommand: 'npm run gate:retention:replay -- --stage=<stage-id>',
+      defaultFailedReplayCommand: 'npm run gate:retention:replay',
+    },
+    gateRun: {
+      outputDir: toRelativeRepoPath(options.outputDir),
+      failFast: options.failFast,
+      runtimeBudgetsPath: toRelativeRepoPath(options.runtimeBudgetsPath),
+      runtimeBudgetsSchemaVersion: runtimeBudgets.version,
+      git: summary.git,
+      runtime: {
+        nodeVersion: process.version,
+        platform: process.platform,
+        arch: process.arch,
+      },
+      envContext: captureReplayContextEnv(),
+      summary: {
+        overallStatus: summary.summary.overallStatus,
+        passed: summary.summary.passed,
+        failed: summary.summary.failed,
+        skipped: summary.summary.skipped,
+        runtimeBudgetBreaches: summary.summary.runtimeBudgetBreaches,
+      },
+    },
+    stages: stageRecords,
+    failedStages,
+    artifacts: {
+      summaryJsonPath: summary.jsonArtifactPath,
+      summaryMarkdownPath: summary.markdownArtifactPath,
+      timingJsonPath: runtimeTiming.jsonArtifactPath,
+      timingMarkdownPath: runtimeTiming.markdownArtifactPath,
+      logsPath: summary.logsPath,
+      reportsPath: summary.reportsPath,
+    },
+  }
+}
+
+function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMarkdownPath) {
+  const lines = [
+    '# Tiny Ranch Retention Gate Replay Pack',
+    '',
+    `- Generated at: ${replayPack.generatedAt}`,
+    `- Overall status: **${replayPack.gateRun.summary.overallStatus.toUpperCase()}**`,
+    `- Source summary JSON: \`${replayPack.artifacts.summaryJsonPath}\``,
+    `- Runtime timing JSON: \`${replayPack.artifacts.timingJsonPath}\``,
+    '',
+    '## Replay Commands',
+    '',
+    '- Replay first failed stage: `npm run gate:retention:replay`',
+    '- Replay specific stage: `npm run gate:retention:replay -- --stage=<stage-id>`',
+    '',
+    '## Failed Stages',
+    '',
+  ]
+
+  if (replayPack.failedStages.length === 0) {
+    lines.push('No failed stages captured in this run.', '')
+  } else {
+    lines.push('| Stage | Replay command | Stdout log | Stderr log |')
+    lines.push('| --- | --- | --- | --- |')
+    for (const stage of replayPack.failedStages) {
+      lines.push(
+        `| ${escapeMarkdownCell(stage.stageId)} | \`${escapeMarkdownCell(stage.replayCommand)}\` | \`${escapeMarkdownCell(stage.stdoutLogPath)}\` | \`${escapeMarkdownCell(stage.stderrLogPath)}\` |`,
+      )
+    }
+    lines.push('')
+  }
+
+  lines.push('## Stage Context')
+  lines.push('')
+  lines.push('| Stage | Status | Command | Key inputs |')
+  lines.push('| --- | --- | --- | --- |')
+  for (const stage of replayPack.stages) {
+    const inputLabel = stage.fixtureRefs.length > 0 ? stage.fixtureRefs.join('<br>') : 'n/a'
+    lines.push(
+      `| ${escapeMarkdownCell(stage.stageId)} | ${escapeMarkdownCell(stage.status.toUpperCase())} | \`${escapeMarkdownCell(stage.command.display)}\` | ${inputLabel} |`,
+    )
+  }
+  lines.push('')
+
+  lines.push('## Artifact Paths')
+  lines.push('')
+  lines.push(`- Replay pack JSON: \`${replayPackJsonPath}\``)
+  lines.push(`- Replay pack Markdown: \`${replayPackMarkdownPath}\``)
+  lines.push('')
+
+  return `${lines.join('\n')}\n`
 }
 
 function buildMetricSummary(stage) {
@@ -743,11 +960,21 @@ function renderMarkdownSummary(summary) {
     lines.push('')
   }
 
+  lines.push('## Replay Pack', '')
+  lines.push(`- Failed stages captured: ${summary.replayPack.failedStageCount}`)
+  lines.push(`- Replay JSON: \`${summary.replayPack.jsonArtifactPath}\``)
+  lines.push(`- Replay Markdown: \`${summary.replayPack.markdownArtifactPath}\``)
+  lines.push('- Replay first failed stage: `npm run gate:retention:replay`')
+  lines.push('- Replay specific stage: `npm run gate:retention:replay -- --stage=<stage-id>`')
+  lines.push('')
+
   lines.push('## Artifact Paths', '')
   lines.push(`- JSON: \`${summary.jsonArtifactPath}\``)
   lines.push(`- Markdown: \`${summary.markdownArtifactPath}\``)
   lines.push(`- Runtime timing JSON: \`${summary.runtimeTiming.jsonArtifactPath}\``)
   lines.push(`- Runtime timing Markdown: \`${summary.runtimeTiming.markdownArtifactPath}\``)
+  lines.push(`- Replay pack JSON: \`${summary.replayPack.jsonArtifactPath}\``)
+  lines.push(`- Replay pack Markdown: \`${summary.replayPack.markdownArtifactPath}\``)
   lines.push(`- Logs: \`${summary.logsPath}\``)
   lines.push(`- Reports: \`${summary.reportsPath}\``)
   lines.push('')
@@ -789,7 +1016,11 @@ function run() {
   const summaryMarkdownPath = path.join(options.outputDir, SUMMARY_MD_NAME)
   const timingJsonPath = path.join(options.outputDir, TIMING_JSON_NAME)
   const timingMarkdownPath = path.join(options.outputDir, TIMING_MD_NAME)
+  const replayPackDir = path.join(options.outputDir, REPLAY_PACK_DIR_NAME)
+  const replayPackJsonPath = path.join(replayPackDir, REPLAY_PACK_JSON_NAME)
+  const replayPackMarkdownPath = path.join(replayPackDir, REPLAY_PACK_MD_NAME)
   const generatedAt = new Date().toISOString()
+  fs.mkdirSync(replayPackDir, { recursive: true })
 
   const runtimeBudgetEvaluation = buildRuntimeBudgetEvaluation(stageResults, runtimeBudgets)
   const runtimeTiming = {
@@ -841,14 +1072,34 @@ function run() {
       jsonArtifactPath: toRelativeRepoPath(timingJsonPath),
       markdownArtifactPath: toRelativeRepoPath(timingMarkdownPath),
     },
+    replayPack: {
+      failedStageCount: failures.length,
+      jsonArtifactPath: toRelativeRepoPath(replayPackJsonPath),
+      markdownArtifactPath: toRelativeRepoPath(replayPackMarkdownPath),
+    },
     jsonArtifactPath: toRelativeRepoPath(summaryJsonPath),
     markdownArtifactPath: toRelativeRepoPath(summaryMarkdownPath),
     logsPath: toRelativeRepoPath(path.join(options.outputDir, LOG_DIR_NAME)),
     reportsPath: toRelativeRepoPath(path.join(options.outputDir, REPORT_DIR_NAME)),
   }
 
+  const replayPack = buildReplayPack(options, generatedAt, stageResults, summary, runtimeTiming, runtimeBudgets)
+  replayPack.replayDefaults.packPath = toRelativeRepoPath(replayPackJsonPath)
+  replayPack.artifacts.replayPackJsonPath = toRelativeRepoPath(replayPackJsonPath)
+  replayPack.artifacts.replayPackMarkdownPath = toRelativeRepoPath(replayPackMarkdownPath)
+
   fs.writeFileSync(timingJsonPath, `${JSON.stringify(runtimeTiming, null, 2)}\n`, 'utf8')
   fs.writeFileSync(timingMarkdownPath, renderRuntimeTimingMarkdown(runtimeTiming), 'utf8')
+  fs.writeFileSync(replayPackJsonPath, `${JSON.stringify(replayPack, null, 2)}\n`, 'utf8')
+  fs.writeFileSync(
+    replayPackMarkdownPath,
+    renderReplayPackMarkdown(
+      replayPack,
+      toRelativeRepoPath(replayPackJsonPath),
+      toRelativeRepoPath(replayPackMarkdownPath),
+    ),
+    'utf8',
+  )
   fs.writeFileSync(summaryJsonPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8')
   fs.writeFileSync(summaryMarkdownPath, renderMarkdownSummary(summary), 'utf8')
 
@@ -857,6 +1108,8 @@ function run() {
   process.stdout.write(`- ${summary.markdownArtifactPath}\n`)
   process.stdout.write(`- ${runtimeTiming.jsonArtifactPath}\n`)
   process.stdout.write(`- ${runtimeTiming.markdownArtifactPath}\n`)
+  process.stdout.write(`- ${summary.replayPack.jsonArtifactPath}\n`)
+  process.stdout.write(`- ${summary.replayPack.markdownArtifactPath}\n`)
   process.stdout.write(`- ${summary.logsPath}\n`)
   process.stdout.write(`- ${summary.reportsPath}\n`)
 

@@ -8,7 +8,9 @@ sequence, fails on blocking stages, and emits a single machine-readable + human-
 ## Source Of Truth
 
 - Orchestrator script: `scripts/run-retention-release-gate.mjs`
+- Replay helper script: `scripts/replay-retention-gate-stage.mjs`
 - Gate command: `npm run gate:retention:release`
+- Replay command: `npm run gate:retention:replay`
 - Runtime budget fixture: `tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-release-gate` job)
 
@@ -41,6 +43,8 @@ Running the gate writes:
 - `artifacts/retention-release-gate/retention-release-gate-summary.md`
 - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
 - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
+- `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.json`
+- `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.md`
 - `artifacts/retention-release-gate/logs/*.log` (per-stage stdout/stderr)
 - `artifacts/retention-release-gate/reports/*.playwright.json` (Playwright stage reports)
 - `artifacts/retention-release-gate/retention-health/*` (nested health snapshot artifacts)
@@ -50,6 +54,7 @@ The summary explicitly records:
 - stage order and status (`pass`, `fail`, `skipped`)
 - stage command and exit code
 - key stage metrics (scenario counts, soak coverage, Playwright pass/fail counts)
+- deterministic replay metadata (exact command, input fixture refs, stage env overrides, runtime context)
 - runtime budget status (total + stage-level breaches)
 - artifact/log paths for debugging and release triage
 
@@ -60,22 +65,23 @@ The summary explicitly records:
 3. If fail, inspect:
    - stage failures in `retention-release-gate-summary.md`
    - runtime budget breaches in `retention-release-gate-runtime-timing.md`
-4. Fix the owning subsystem or update approved budgets, then re-run the full gate before ship approval.
+   - replay metadata in `replay-pack/retention-release-gate-replay-pack.md`
+4. Reproduce the first failed stage with:
+   - `npm run gate:retention:replay`
+   - or `npm run gate:retention:replay -- --stage=<stage-id>` for targeted reruns
+5. Apply fix in owning subsystem or update approved budgets, then re-run the full gate before ship approval.
 
 ## Fallback Procedure On Sub-Gate Failure
 
 1. Open `artifacts/retention-release-gate/retention-release-gate-summary.md`.
-2. Locate the first failed stage and read:
+2. Open `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.md`.
+3. Locate the first failed stage and read:
    - `logs/<stage>.stdout.log`
    - `logs/<stage>.stderr.log`
-3. Re-run only that stage command for faster iteration:
-   - Balance: `npm run balance:check:return-objectives`
-   - Migration smoke: `npm run test:smoke:save-migration`
-   - Soak: `npm run test:soak:retention`
-   - Memory: `npm run test:soak:retention:memory`
-   - Health snapshot: `npm run report:retention:health -- --run-playwright`
-4. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
-5. If runtime budget breaches occur with passing stages, open:
+4. Re-run only that stage command from captured context:
+   - `npm run gate:retention:replay -- --stage=<stage-id>`
+5. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
+6. If runtime budget breaches occur with passing stages, open:
    - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
    - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
    then follow the remediation playbook in `docs/ver-104-retention-gate-ci-runtime-budget.md`.

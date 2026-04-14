@@ -151,6 +151,14 @@ jobs:
           path: artifacts/retention-release-gate
           if-no-files-found: error
 
+      - name: Upload retention release gate replay pack (failures)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retention-release-gate-replay-pack
+          path: artifacts/retention-release-gate/replay-pack
+          if-no-files-found: error
+
   core-loop-smoke:
     runs-on: ubuntu-latest
     steps:
