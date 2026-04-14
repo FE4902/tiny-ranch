@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 artifacts/retention-health
+artifacts/retention-release-gate
 *.local
 
 # Editor directories and files

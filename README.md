@@ -212,6 +212,21 @@ Thresholds are source-controlled in
 `tests/fixtures/analytics/retention-health-thresholds.fixture.json`. Ownership mapping and triage
 workflow are documented in `docs/ver-101-retention-health-snapshot-gate.md`.
 
+Run the one-command retention release gate orchestrator with:
+
+```bash
+npm run gate:retention:release
+```
+
+This command runs balance, migration smoke, soak, memory, and health snapshot gates in one
+deterministic order, fails fast on hard blockers, and writes aggregate release-readiness artifacts:
+
+- `artifacts/retention-release-gate/retention-release-gate-summary.json`
+- `artifacts/retention-release-gate/retention-release-gate-summary.md`
+
+For full release workflow and fallback procedure when one sub-gate fails, see
+`docs/ver-102-retention-release-gate-orchestrator.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration
