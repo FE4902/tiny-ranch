@@ -141,7 +141,7 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run retention release gate orchestrator
-        run: npm run gate:retention:release
+        run: npm run gate:retention:release -- --runtime-budgets=tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json
 
       - name: Upload retention release gate artifacts
         if: always()

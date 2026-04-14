@@ -11,10 +11,16 @@ const __dirname = path.dirname(__filename)
 const repoRoot = path.resolve(__dirname, '..')
 
 const DEFAULT_OUTPUT_DIR = path.join(repoRoot, 'artifacts/retention-release-gate')
+const DEFAULT_RUNTIME_BUDGETS_PATH = path.join(
+  repoRoot,
+  'tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json',
+)
 const LOG_DIR_NAME = 'logs'
 const REPORT_DIR_NAME = 'reports'
 const SUMMARY_JSON_NAME = 'retention-release-gate-summary.json'
 const SUMMARY_MD_NAME = 'retention-release-gate-summary.md'
+const TIMING_JSON_NAME = 'retention-release-gate-runtime-timing.json'
+const TIMING_MD_NAME = 'retention-release-gate-runtime-timing.md'
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024
 
 const STAGE_DEFINITIONS = [
@@ -74,15 +80,18 @@ const STAGE_DEFINITIONS = [
   },
 ]
 
+const STAGE_ID_SET = new Set(STAGE_DEFINITIONS.map((definition) => definition.id))
+
 function printUsage() {
   process.stdout.write(
     [
       'Usage: node scripts/run-retention-release-gate.mjs [options]',
       '',
       'Options:',
-      '  --output-dir=<path>     Output directory for summary + stage logs.',
-      '  --no-fail-fast          Continue non-blocked stages after a hard-blocker fails.',
-      '  --help                  Show this message.',
+      '  --output-dir=<path>         Output directory for summary + stage logs.',
+      '  --runtime-budgets=<path>    Runtime budget fixture path override.',
+      '  --no-fail-fast              Continue non-blocked stages after a hard-blocker fails.',
+      '  --help                      Show this message.',
       '',
     ].join('\n'),
   )
@@ -91,6 +100,7 @@ function printUsage() {
 function parseArgs(argv) {
   const options = {
     outputDir: DEFAULT_OUTPUT_DIR,
+    runtimeBudgetsPath: DEFAULT_RUNTIME_BUDGETS_PATH,
     failFast: true,
   }
 
@@ -115,14 +125,98 @@ function parseArgs(argv) {
       continue
     }
 
+    if (arg.startsWith('--runtime-budgets=')) {
+      const rawPath = arg.slice('--runtime-budgets='.length).trim()
+      if (rawPath.length === 0) {
+        throw new Error('--runtime-budgets requires a non-empty path.')
+      }
+
+      options.runtimeBudgetsPath = path.resolve(process.cwd(), rawPath)
+      continue
+    }
+
     throw new Error(`Unknown argument: ${arg}`)
   }
 
   return options
 }
 
+function readJson(filePath, description) {
+  const raw = fs.readFileSync(filePath, 'utf8')
+  try {
+    return JSON.parse(raw)
+  } catch (error) {
+    throw new Error(
+      `Could not parse ${description} at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+}
+
+function parsePositiveNumber(raw, fieldName) {
+  const value = Number(raw)
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive number.`)
+  }
+
+  return Math.round(value)
+}
+
+function readRuntimeBudgets(runtimeBudgetsPath) {
+  if (!fs.existsSync(runtimeBudgetsPath)) {
+    throw new Error(`Runtime budget fixture not found at ${runtimeBudgetsPath}.`)
+  }
+
+  const parsed = readJson(runtimeBudgetsPath, 'runtime budget fixture')
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`Runtime budget fixture at ${runtimeBudgetsPath} must be an object.`)
+  }
+
+  const budgets = parsed.budgets
+  if (!budgets || typeof budgets !== 'object' || Array.isArray(budgets)) {
+    throw new Error(`Runtime budget fixture at ${runtimeBudgetsPath} must include a "budgets" object.`)
+  }
+
+  const totalDurationMsCeiling = parsePositiveNumber(
+    budgets.totalDurationMsCeiling,
+    'budgets.totalDurationMsCeiling',
+  )
+
+  const stageDurationMsCeilings = {}
+  if (Object.prototype.hasOwnProperty.call(budgets, 'stageDurationMsCeilings')) {
+    if (
+      !budgets.stageDurationMsCeilings ||
+      typeof budgets.stageDurationMsCeilings !== 'object' ||
+      Array.isArray(budgets.stageDurationMsCeilings)
+    ) {
+      throw new Error(
+        `Runtime budget fixture at ${runtimeBudgetsPath} has invalid "budgets.stageDurationMsCeilings".`,
+      )
+    }
+
+    for (const [stageId, rawCeiling] of Object.entries(budgets.stageDurationMsCeilings)) {
+      if (!STAGE_ID_SET.has(stageId)) {
+        throw new Error(
+          `Runtime budget fixture at ${runtimeBudgetsPath} has unknown stage id "${stageId}" in stageDurationMsCeilings.`,
+        )
+      }
+
+      stageDurationMsCeilings[stageId] = parsePositiveNumber(
+        rawCeiling,
+        `budgets.stageDurationMsCeilings.${stageId}`,
+      )
+    }
+  }
+
+  return {
+    version:
+      typeof parsed.version === 'number' && Number.isFinite(parsed.version) ? Math.round(parsed.version) : null,
+    totalDurationMsCeiling,
+    stageDurationMsCeilings,
+  }
+}
+
 function runProcess(command, args, env = {}) {
-  const startedAt = Date.now()
+  const startedAtMs = Date.now()
   const result = spawnSync(command, args, {
     cwd: repoRoot,
     encoding: 'utf8',
@@ -132,13 +226,16 @@ function runProcess(command, args, env = {}) {
     },
     maxBuffer: MAX_BUFFER_BYTES,
   })
-  const durationMs = Date.now() - startedAt
+  const finishedAtMs = Date.now()
+  const durationMs = finishedAtMs - startedAtMs
 
   return {
     exitCode: result.status ?? (result.error ? 1 : 0),
     stdout: result.stdout ?? '',
     stderr: result.stderr ?? '',
     durationMs,
+    startedAt: new Date(startedAtMs).toISOString(),
+    finishedAt: new Date(finishedAtMs).toISOString(),
     errorMessage: result.error
       ? result.error instanceof Error
         ? result.error.message
@@ -233,9 +330,8 @@ function readJsonFile(filePath) {
     return null
   }
 
-  const raw = fs.readFileSync(filePath, 'utf8')
   try {
-    return JSON.parse(raw)
+    return readJson(filePath, 'JSON file')
   } catch (_error) {
     return null
   }
@@ -378,6 +474,8 @@ function buildStageResult(definition, options) {
     command: formatCommand(command),
     docs: definition.docs,
     durationMs: rawResult.durationMs,
+    startedAt: rawResult.startedAt,
+    finishedAt: rawResult.finishedAt,
     exitCode: rawResult.exitCode,
     metrics,
     artifactPaths: artifacts,
@@ -395,6 +493,8 @@ function buildSkippedStageResult(definition, blockedByStageId) {
     command: formatCommand(definition.command),
     docs: definition.docs,
     durationMs: 0,
+    startedAt: null,
+    finishedAt: null,
     exitCode: null,
     metrics: {},
     artifactPaths: [],
@@ -415,6 +515,89 @@ function buildFailureList(stageResults) {
       stdoutLogPath: stage.stdoutLogPath,
       stderrLogPath: stage.stderrLogPath,
     }))
+}
+
+function buildRuntimeBudgetEvaluation(stageResults, runtimeBudgets) {
+  const executedStages = stageResults.filter((stage) => stage.status !== 'skipped')
+  const totalDurationMs = executedStages.reduce((sum, stage) => sum + stage.durationMs, 0)
+  const breaches = []
+
+  if (totalDurationMs > runtimeBudgets.totalDurationMsCeiling) {
+    breaches.push({
+      scope: 'total',
+      stageId: null,
+      stageTitle: null,
+      actualDurationMs: totalDurationMs,
+      ceilingDurationMs: runtimeBudgets.totalDurationMsCeiling,
+      overBudgetMs: totalDurationMs - runtimeBudgets.totalDurationMsCeiling,
+      message: `Total runtime ${totalDurationMs}ms exceeds ceiling ${runtimeBudgets.totalDurationMsCeiling}ms.`,
+    })
+  }
+
+  for (const stage of executedStages) {
+    if (!Object.prototype.hasOwnProperty.call(runtimeBudgets.stageDurationMsCeilings, stage.id)) {
+      continue
+    }
+
+    const ceiling = runtimeBudgets.stageDurationMsCeilings[stage.id]
+    if (stage.durationMs <= ceiling) {
+      continue
+    }
+
+    breaches.push({
+      scope: 'stage',
+      stageId: stage.id,
+      stageTitle: stage.title,
+      actualDurationMs: stage.durationMs,
+      ceilingDurationMs: ceiling,
+      overBudgetMs: stage.durationMs - ceiling,
+      message: `Stage ${stage.id} runtime ${stage.durationMs}ms exceeds ceiling ${ceiling}ms.`,
+    })
+  }
+
+  return {
+    totalDurationMs,
+    totalDurationMsCeiling: runtimeBudgets.totalDurationMsCeiling,
+    stageDurationMsCeilings: runtimeBudgets.stageDurationMsCeilings,
+    executedStageCount: executedStages.length,
+    breachCount: breaches.length,
+    breaches,
+    overallStatus: breaches.length > 0 ? 'fail' : 'pass',
+  }
+}
+
+function buildRuntimeTimingStages(stageResults, runtimeBudgets, totalDurationMs) {
+  return stageResults.map((stage) => {
+    const configuredBudgetMs = Object.prototype.hasOwnProperty.call(
+      runtimeBudgets.stageDurationMsCeilings,
+      stage.id,
+    )
+      ? runtimeBudgets.stageDurationMsCeilings[stage.id]
+      : null
+
+    const overBudgetMs =
+      configuredBudgetMs !== null && stage.status !== 'skipped' && stage.durationMs > configuredBudgetMs
+        ? stage.durationMs - configuredBudgetMs
+        : 0
+
+    const durationSharePct =
+      totalDurationMs > 0 && stage.status !== 'skipped'
+        ? Number(((stage.durationMs / totalDurationMs) * 100).toFixed(2))
+        : 0
+
+    return {
+      id: stage.id,
+      title: stage.title,
+      status: stage.status,
+      durationMs: stage.durationMs,
+      startedAt: stage.startedAt,
+      finishedAt: stage.finishedAt,
+      skipReason: stage.skipReason ?? null,
+      durationSharePct,
+      configuredBudgetMs,
+      overBudgetMs,
+    }
+  })
 }
 
 function buildMetricSummary(stage) {
@@ -448,6 +631,60 @@ function escapeMarkdownCell(value) {
   return String(value).replace(/\|/g, '\\|')
 }
 
+function renderRuntimeTimingMarkdown(timingSummary) {
+  const lines = [
+    '# Tiny Ranch Retention Release Gate Runtime Timing',
+    '',
+    `- Generated at: ${timingSummary.generatedAt}`,
+    `- Overall status: **${timingSummary.summary.overallStatus.toUpperCase()}**`,
+    `- Runtime budget fixture: \`${timingSummary.runtimeBudgetsPath}\``,
+    `- Total runtime: ${timingSummary.summary.totalDurationMs} ms`,
+    `- Total runtime ceiling: ${timingSummary.summary.totalDurationMsCeiling} ms`,
+    `- Runtime budget breaches: ${timingSummary.summary.breachCount}`,
+    '',
+    '## Stage Timing',
+    '',
+    '| Stage | Status | Duration (ms) | Share (%) | Ceiling (ms) | Over budget (ms) |',
+    '| --- | --- | ---: | ---: | ---: | ---: |',
+  ]
+
+  for (const stage of timingSummary.stages) {
+    const statusLabel =
+      stage.status === 'pass'
+        ? 'PASS'
+        : stage.status === 'fail'
+          ? 'FAIL'
+          : stage.skipReason
+            ? `SKIP (${stage.skipReason})`
+            : 'SKIP'
+    lines.push(
+      `| ${escapeMarkdownCell(stage.title)} | ${escapeMarkdownCell(statusLabel)} | ${stage.durationMs} | ${stage.durationSharePct.toFixed(2)} | ${stage.configuredBudgetMs ?? 'n/a'} | ${stage.overBudgetMs > 0 ? stage.overBudgetMs : 0} |`,
+    )
+  }
+
+  lines.push('', '## Budget Breaches', '')
+
+  if (timingSummary.budgetEvaluation.breaches.length === 0) {
+    lines.push('No runtime budget breaches detected.', '')
+  } else {
+    lines.push('| Scope | Stage | Actual (ms) | Ceiling (ms) | Over (ms) |')
+    lines.push('| --- | --- | ---: | ---: | ---: |')
+    for (const breach of timingSummary.budgetEvaluation.breaches) {
+      lines.push(
+        `| ${breach.scope === 'total' ? 'total' : 'stage'} | ${escapeMarkdownCell(breach.stageId ?? 'total')} | ${breach.actualDurationMs} | ${breach.ceilingDurationMs} | ${breach.overBudgetMs} |`,
+      )
+    }
+    lines.push('')
+  }
+
+  lines.push('## Artifact Paths', '')
+  lines.push(`- JSON: \`${timingSummary.jsonArtifactPath}\``)
+  lines.push(`- Markdown: \`${timingSummary.markdownArtifactPath}\``)
+  lines.push('')
+
+  return `${lines.join('\n')}\n`
+}
+
 function renderMarkdownSummary(summary) {
   const lines = [
     '# Tiny Ranch Retention Release Gate',
@@ -455,6 +692,7 @@ function renderMarkdownSummary(summary) {
     `- Generated at: ${summary.generatedAt}`,
     `- Overall status: **${summary.summary.overallStatus.toUpperCase()}**`,
     `- Fail-fast mode: ${summary.options.failFast ? 'enabled' : 'disabled'}`,
+    `- Runtime budget fixture: \`${summary.options.runtimeBudgetsPath}\``,
     '',
     '## Stage Summary',
     '',
@@ -468,6 +706,27 @@ function renderMarkdownSummary(summary) {
     lines.push(
       `| ${escapeMarkdownCell(stage.title)} | ${escapeMarkdownCell(statusLabel)} | ${stage.durationMs} | ${escapeMarkdownCell(buildMetricSummary(stage))} | \`${escapeMarkdownCell(stage.command)}\` |`,
     )
+  }
+
+  lines.push('', '## Runtime Budget', '')
+  lines.push(`- Status: **${summary.runtimeTiming.budgetStatus.toUpperCase()}**`)
+  lines.push(
+    `- Total runtime: ${summary.runtimeTiming.totalDurationMs} ms (ceiling: ${summary.runtimeTiming.totalDurationMsCeiling} ms)`,
+  )
+  lines.push(`- Breaches: ${summary.runtimeTiming.breachCount}`)
+  lines.push(`- Timing JSON: \`${summary.runtimeTiming.jsonArtifactPath}\``)
+  lines.push(`- Timing Markdown: \`${summary.runtimeTiming.markdownArtifactPath}\``)
+  lines.push('')
+
+  if (summary.runtimeTiming.breachCount > 0) {
+    lines.push('| Scope | Stage | Actual (ms) | Ceiling (ms) | Over (ms) |')
+    lines.push('| --- | --- | ---: | ---: | ---: |')
+    for (const breach of summary.runtimeTiming.breaches) {
+      lines.push(
+        `| ${breach.scope === 'total' ? 'total' : 'stage'} | ${escapeMarkdownCell(breach.stageId ?? 'total')} | ${breach.actualDurationMs} | ${breach.ceilingDurationMs} | ${breach.overBudgetMs} |`,
+      )
+    }
+    lines.push('')
   }
 
   lines.push('', '## Failures', '')
@@ -487,6 +746,8 @@ function renderMarkdownSummary(summary) {
   lines.push('## Artifact Paths', '')
   lines.push(`- JSON: \`${summary.jsonArtifactPath}\``)
   lines.push(`- Markdown: \`${summary.markdownArtifactPath}\``)
+  lines.push(`- Runtime timing JSON: \`${summary.runtimeTiming.jsonArtifactPath}\``)
+  lines.push(`- Runtime timing Markdown: \`${summary.runtimeTiming.markdownArtifactPath}\``)
   lines.push(`- Logs: \`${summary.logsPath}\``)
   lines.push(`- Reports: \`${summary.reportsPath}\``)
   lines.push('')
@@ -497,6 +758,7 @@ function renderMarkdownSummary(summary) {
 function run() {
   const options = parseArgs(process.argv.slice(2))
   fs.mkdirSync(options.outputDir, { recursive: true })
+  const runtimeBudgets = readRuntimeBudgets(options.runtimeBudgetsPath)
 
   const stageResults = []
   let blockedByStageId = null
@@ -525,43 +787,105 @@ function run() {
   const failures = buildFailureList(stageResults)
   const summaryJsonPath = path.join(options.outputDir, SUMMARY_JSON_NAME)
   const summaryMarkdownPath = path.join(options.outputDir, SUMMARY_MD_NAME)
+  const timingJsonPath = path.join(options.outputDir, TIMING_JSON_NAME)
+  const timingMarkdownPath = path.join(options.outputDir, TIMING_MD_NAME)
+  const generatedAt = new Date().toISOString()
+
+  const runtimeBudgetEvaluation = buildRuntimeBudgetEvaluation(stageResults, runtimeBudgets)
+  const runtimeTiming = {
+    schemaVersion: 1,
+    issueIdentifier: 'VER-104',
+    generatedAt,
+    runtimeBudgetsPath: toRelativeRepoPath(options.runtimeBudgetsPath),
+    summary: {
+      overallStatus: runtimeBudgetEvaluation.overallStatus,
+      totalDurationMs: runtimeBudgetEvaluation.totalDurationMs,
+      totalDurationMsCeiling: runtimeBudgetEvaluation.totalDurationMsCeiling,
+      breachCount: runtimeBudgetEvaluation.breachCount,
+      executedStageCount: runtimeBudgetEvaluation.executedStageCount,
+    },
+    budgetEvaluation: runtimeBudgetEvaluation,
+    stages: buildRuntimeTimingStages(
+      stageResults,
+      runtimeBudgets,
+      runtimeBudgetEvaluation.totalDurationMs,
+    ),
+    jsonArtifactPath: toRelativeRepoPath(timingJsonPath),
+    markdownArtifactPath: toRelativeRepoPath(timingMarkdownPath),
+  }
 
   const summary = {
     schemaVersion: 1,
     issueIdentifier: 'VER-102',
-    generatedAt: new Date().toISOString(),
+    generatedAt,
     options: {
       outputDir: toRelativeRepoPath(options.outputDir),
       failFast: options.failFast,
+      runtimeBudgetsPath: toRelativeRepoPath(options.runtimeBudgetsPath),
     },
     git: resolveGitMetadata(),
     summary: {
-      overallStatus: summaryCounts.failed > 0 ? 'fail' : 'pass',
+      overallStatus: summaryCounts.failed > 0 || runtimeBudgetEvaluation.breachCount > 0 ? 'fail' : 'pass',
       ...summaryCounts,
+      runtimeBudgetBreaches: runtimeBudgetEvaluation.breachCount,
     },
     blockedByStageId,
     stages: stageResults,
     failures,
+    runtimeTiming: {
+      budgetStatus: runtimeBudgetEvaluation.overallStatus,
+      totalDurationMs: runtimeBudgetEvaluation.totalDurationMs,
+      totalDurationMsCeiling: runtimeBudgetEvaluation.totalDurationMsCeiling,
+      breachCount: runtimeBudgetEvaluation.breachCount,
+      breaches: runtimeBudgetEvaluation.breaches,
+      jsonArtifactPath: toRelativeRepoPath(timingJsonPath),
+      markdownArtifactPath: toRelativeRepoPath(timingMarkdownPath),
+    },
     jsonArtifactPath: toRelativeRepoPath(summaryJsonPath),
     markdownArtifactPath: toRelativeRepoPath(summaryMarkdownPath),
     logsPath: toRelativeRepoPath(path.join(options.outputDir, LOG_DIR_NAME)),
     reportsPath: toRelativeRepoPath(path.join(options.outputDir, REPORT_DIR_NAME)),
   }
 
+  fs.writeFileSync(timingJsonPath, `${JSON.stringify(runtimeTiming, null, 2)}\n`, 'utf8')
+  fs.writeFileSync(timingMarkdownPath, renderRuntimeTimingMarkdown(runtimeTiming), 'utf8')
   fs.writeFileSync(summaryJsonPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8')
   fs.writeFileSync(summaryMarkdownPath, renderMarkdownSummary(summary), 'utf8')
 
   process.stdout.write('[retention-release-gate] artifacts generated:\n')
   process.stdout.write(`- ${summary.jsonArtifactPath}\n`)
   process.stdout.write(`- ${summary.markdownArtifactPath}\n`)
+  process.stdout.write(`- ${runtimeTiming.jsonArtifactPath}\n`)
+  process.stdout.write(`- ${runtimeTiming.markdownArtifactPath}\n`)
   process.stdout.write(`- ${summary.logsPath}\n`)
   process.stdout.write(`- ${summary.reportsPath}\n`)
 
   if (summary.summary.overallStatus === 'fail') {
-    const firstFailure = failures[0]
-    process.stderr.write(
-      `[retention-release-gate] blocking stage failed: ${firstFailure ? firstFailure.stageId : 'unknown'}\n`,
-    )
+    if (failures.length > 0) {
+      const firstFailure = failures[0]
+      process.stderr.write(
+        `[retention-release-gate] blocking stage failed: ${firstFailure ? firstFailure.stageId : 'unknown'}\n`,
+      )
+    }
+
+    if (runtimeBudgetEvaluation.breachCount > 0) {
+      process.stderr.write(
+        `[retention-release-gate] runtime budget breaches: ${runtimeBudgetEvaluation.breachCount}\n`,
+      )
+      for (const breach of runtimeBudgetEvaluation.breaches) {
+        if (breach.scope === 'total') {
+          process.stderr.write(
+            `- [total] actual=${breach.actualDurationMs}ms ceiling=${breach.ceilingDurationMs}ms over=${breach.overBudgetMs}ms\n`,
+          )
+          continue
+        }
+
+        process.stderr.write(
+          `- [${breach.stageId}] actual=${breach.actualDurationMs}ms ceiling=${breach.ceilingDurationMs}ms over=${breach.overBudgetMs}ms\n`,
+        )
+      }
+    }
+
     process.exit(1)
   }
 }

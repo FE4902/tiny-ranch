@@ -9,6 +9,7 @@ sequence, fails on blocking stages, and emits a single machine-readable + human-
 
 - Orchestrator script: `scripts/run-retention-release-gate.mjs`
 - Gate command: `npm run gate:retention:release`
+- Runtime budget fixture: `tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-release-gate` job)
 
 ## Stage Order
@@ -30,6 +31,7 @@ The orchestrator always runs stages in this order:
 Optional local override:
 
 - `npm run gate:retention:release -- --no-fail-fast`
+- `npm run gate:retention:release -- --runtime-budgets=<path>`
 
 ## Artifacts
 
@@ -37,6 +39,8 @@ Running the gate writes:
 
 - `artifacts/retention-release-gate/retention-release-gate-summary.json`
 - `artifacts/retention-release-gate/retention-release-gate-summary.md`
+- `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
+- `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
 - `artifacts/retention-release-gate/logs/*.log` (per-stage stdout/stderr)
 - `artifacts/retention-release-gate/reports/*.playwright.json` (Playwright stage reports)
 - `artifacts/retention-release-gate/retention-health/*` (nested health snapshot artifacts)
@@ -46,14 +50,17 @@ The summary explicitly records:
 - stage order and status (`pass`, `fail`, `skipped`)
 - stage command and exit code
 - key stage metrics (scenario counts, soak coverage, Playwright pass/fail counts)
+- runtime budget status (total + stage-level breaches)
 - artifact/log paths for debugging and release triage
 
 ## Standard Release Workflow
 
 1. Run `npm run gate:retention:release`.
 2. If pass, archive or attach `artifacts/retention-release-gate/*` to release notes.
-3. If fail, inspect the failing stage logs listed in the summary markdown/json.
-4. Fix the owning subsystem, then re-run the full gate before ship approval.
+3. If fail, inspect:
+   - stage failures in `retention-release-gate-summary.md`
+   - runtime budget breaches in `retention-release-gate-runtime-timing.md`
+4. Fix the owning subsystem or update approved budgets, then re-run the full gate before ship approval.
 
 ## Fallback Procedure On Sub-Gate Failure
 
@@ -68,3 +75,7 @@ The summary explicitly records:
    - Memory: `npm run test:soak:retention:memory`
    - Health snapshot: `npm run report:retention:health -- --run-playwright`
 4. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
+5. If runtime budget breaches occur with passing stages, open:
+   - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
+   - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
+   then follow the remediation playbook in `docs/ver-104-retention-gate-ci-runtime-budget.md`.

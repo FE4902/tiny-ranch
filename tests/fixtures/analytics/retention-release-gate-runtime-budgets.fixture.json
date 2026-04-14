@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "budgets": {
+    "totalDurationMsCeiling": 180000,
+    "stageDurationMsCeilings": {
+      "balance_check": 5000,
+      "save_migration_smoke": 30000,
+      "retention_soak": 5000,
+      "memory_gate": 90000,
+      "retention_health_snapshot": 120000
+    }
+  }
+}
