@@ -191,6 +191,27 @@ source-controlled memory/frame thresholds, and emits JSON diagnostics on failure
 (`caseKey`, sample window, drift metrics, threshold exceeded). For triage and threshold-update
 policy, see `docs/ver-100-mobile-memory-drift-gate.md`.
 
+Run the retention health snapshot report (aggregated deterministic readiness view) with:
+
+```bash
+npm run report:retention:health
+```
+
+This generates machine-readable + human-readable artifacts at:
+
+- `artifacts/retention-health/retention-health-summary.json`
+- `artifacts/retention-health/retention-health-summary.md`
+
+For CI-equivalent output that also includes Playwright migration + memory checks:
+
+```bash
+npm run report:retention:health -- --run-playwright
+```
+
+Thresholds are source-controlled in
+`tests/fixtures/analytics/retention-health-thresholds.fixture.json`. Ownership mapping and triage
+workflow are documented in `docs/ver-101-retention-health-snapshot-gate.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration

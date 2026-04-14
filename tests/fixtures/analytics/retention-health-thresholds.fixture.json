@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "checks": {
+    "telemetryContract": {
+      "minimumValidatedEvents": 9
+    },
+    "cohortExport": {
+      "minimumSampleEvents": 20
+    },
+    "balance": {
+      "minimumScenarioCount": 2,
+      "maximumFailingScenarios": 0,
+      "minimumStreakBonusByScenario": {
+        "daily_claim_streak": 700,
+        "lapse_recovery_streak": 550
+      }
+    },
+    "soak": {
+      "minimumMatrixCaseCount": 16,
+      "maximumFailingCases": 0,
+      "minimumObjectiveEnabledCases": 4,
+      "minimumObjectiveEnabledClaimRate": 1
+    },
+    "saveMigration": {
+      "minimumPassedTests": 4,
+      "maximumFailedTests": 0
+    },
+    "memoryGate": {
+      "minimumPassedTests": 1,
+      "maximumFailedTests": 0
+    }
+  }
+}
