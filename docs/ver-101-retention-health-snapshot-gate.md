@@ -11,6 +11,7 @@ machine-readable + human-readable artifact pair.
 - Threshold fixture: `tests/fixtures/analytics/retention-health-thresholds.fixture.json`
 - NPM command: `npm run report:retention:health`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-health-snapshot` job)
+- Baseline diff layer: `docs/ver-103-retention-gate-baseline-diff.md`
 
 ## Artifacts
 
@@ -58,3 +59,11 @@ When a metric fails, use this table to route triage quickly.
    - `npm run report:retention:health`
    - `npm run report:retention:health -- --run-playwright` (when Playwright dependencies are available)
 4. Include rationale for threshold changes in the issue comment.
+
+## Baseline Regression Diff Layer
+
+Retention health thresholds are complemented by baseline-vs-current drift diffing:
+
+- command: `npm run gate:retention:baseline-diff`
+- baseline fixture: `tests/fixtures/analytics/retention-gate-baseline.fixture.json`
+- workflow and refresh policy: `docs/ver-103-retention-gate-baseline-diff.md`

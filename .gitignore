@@ -12,6 +12,7 @@ dist
 dist-ssr
 artifacts/retention-health
 artifacts/retention-release-gate
+artifacts/retention-baseline-diff
 *.local
 
 # Editor directories and files

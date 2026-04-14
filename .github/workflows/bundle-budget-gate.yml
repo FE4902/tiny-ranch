@@ -103,12 +103,23 @@ jobs:
       - name: Build retention health snapshot
         run: npm run report:retention:health -- --run-playwright
 
+      - name: Build retention baseline diff artifacts
+        run: npm run gate:retention:baseline-diff -- --summary=artifacts/retention-health/retention-health-summary.json
+
       - name: Upload retention health artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: retention-health-snapshot
           path: artifacts/retention-health
+          if-no-files-found: error
+
+      - name: Upload retention baseline diff artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: retention-baseline-diff
+          path: artifacts/retention-baseline-diff
           if-no-files-found: error
 
   retention-release-gate:

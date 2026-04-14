@@ -14,6 +14,7 @@
     "test:soak:retention": "node scripts/check-retention-soak.mjs",
     "test:soak:retention:memory": "playwright test --project=mobile-chromium tests/smoke/retention-memory-gate.spec.ts",
     "report:retention:health": "node scripts/report-retention-health.mjs",
+    "gate:retention:baseline-diff": "node scripts/diff-retention-gate-baseline.mjs",
     "gate:retention:release": "node scripts/run-retention-release-gate.mjs",
     "test:retention:tuning-packs": "node scripts/test-retention-tuning-pack-loader.mjs",
     "test:telemetry:retention": "node scripts/validate-retention-telemetry-contract.mjs",

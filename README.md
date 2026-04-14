@@ -212,6 +212,29 @@ Thresholds are source-controlled in
 `tests/fixtures/analytics/retention-health-thresholds.fixture.json`. Ownership mapping and triage
 workflow are documented in `docs/ver-101-retention-health-snapshot-gate.md`.
 
+Run the retention baseline diff gate (baseline-vs-current regression layer) with:
+
+```bash
+npm run gate:retention:baseline-diff
+```
+
+This command compares retention health summary metrics against source-controlled baseline fixtures
+and emits diff artifacts:
+
+- `artifacts/retention-baseline-diff/retention-baseline-diff.json`
+- `artifacts/retention-baseline-diff/retention-baseline-diff.md`
+
+Baseline fixtures and drift thresholds live in
+`tests/fixtures/analytics/retention-gate-baseline.fixture.json`.
+For intentional tuning updates, refresh baseline values with:
+
+```bash
+npm run gate:retention:baseline-diff -- --update-baseline
+```
+
+Baseline diff policy and workflow are documented in
+`docs/ver-103-retention-gate-baseline-diff.md`.
+
 Run the one-command retention release gate orchestrator with:
 
 ```bash

@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "updatedAt": "2026-04-14T13:08:05.632Z",
+  "sourceSummaryPath": "artifacts/retention-health/retention-health-summary.json",
+  "metrics": {
+    "overallStatus": "pass",
+    "objectiveBalance": {
+      "failingScenarios": 0,
+      "scenarios": {
+        "daily_claim_streak": {
+          "streakBonus": 756,
+          "status": "PASS"
+        },
+        "lapse_recovery_streak": {
+          "streakBonus": 601,
+          "status": "PASS"
+        }
+      }
+    },
+    "retentionSoak": {
+      "failingCases": 0,
+      "minimumObjectiveEnabledClaimRate": 1,
+      "objectiveEnabledCaseCount": 4
+    },
+    "saveMigration": {
+      "status": "pass",
+      "passedTests": 4,
+      "failedTests": 0,
+      "totalTests": 4
+    },
+    "memoryGate": {
+      "status": "pass",
+      "passedTests": 1,
+      "failedTests": 0,
+      "totalTests": 1
+    }
+  },
+  "driftThresholds": [
+    {
+      "metric": "overallStatus",
+      "label": "Retention health overall status"
+    },
+    {
+      "metric": "retentionSoak.minimumObjectiveEnabledClaimRate",
+      "label": "Claim completion rate",
+      "maxAbsoluteDelta": 0.05,
+      "maxRelativeDeltaPct": 5
+    },
+    {
+      "metric": "objectiveBalance.scenarios.daily_claim_streak.streakBonus",
+      "label": "Streak continuity (daily claim)",
+      "maxAbsoluteDelta": 120,
+      "maxRelativeDeltaPct": 20
+    },
+    {
+      "metric": "objectiveBalance.scenarios.lapse_recovery_streak.streakBonus",
+      "label": "Streak continuity (lapse recovery)",
+      "maxAbsoluteDelta": 120,
+      "maxRelativeDeltaPct": 20
+    },
+    {
+      "metric": "objectiveBalance.failingScenarios",
+      "label": "Objective balance guardrail failures",
+      "maxAbsoluteDelta": 0
+    },
+    {
+      "metric": "retentionSoak.failingCases",
+      "label": "Retention soak guardrail failures",
+      "maxAbsoluteDelta": 0
+    },
+    {
+      "metric": "saveMigration.failedTests",
+      "label": "Save migration guardrail failures",
+      "maxAbsoluteDelta": 0
+    },
+    {
+      "metric": "saveMigration.status",
+      "label": "Save migration guardrail status"
+    },
+    {
+      "metric": "memoryGate.failedTests",
+      "label": "Memory gate guardrail failures",
+      "maxAbsoluteDelta": 0
+    },
+    {
+      "metric": "memoryGate.status",
+      "label": "Memory gate guardrail status"
+    }
+  ]
+}
