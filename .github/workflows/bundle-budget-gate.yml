@@ -143,6 +143,28 @@ jobs:
       - name: Run retention release gate orchestrator
         run: npm run gate:retention:release -- --runtime-budgets=tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json
 
+      - name: Publish retention release gate summary to CI job summary
+        if: always()
+        run: |
+          SUMMARY_PATH="artifacts/retention-release-gate/retention-release-gate-summary.md"
+          INDEX_PATH="artifacts/retention-release-gate/retention-release-gate-artifact-index.json"
+
+          if [ -f "$SUMMARY_PATH" ]; then
+            cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Tiny Ranch Retention Release Gate" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Summary artifact missing: \`$SUMMARY_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f "$INDEX_PATH" ]; then
+            echo "Artifact index JSON: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Artifact index JSON missing: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload retention release gate artifacts
         if: always()
         uses: actions/upload-artifact@v4

@@ -246,10 +246,15 @@ deterministic order, fails fast on hard blockers, and writes aggregate release-r
 
 - `artifacts/retention-release-gate/retention-release-gate-summary.json`
 - `artifacts/retention-release-gate/retention-release-gate-summary.md`
+- `artifacts/retention-release-gate/retention-release-gate-artifact-index.json`
 
 Failed stages are automatically rerun once (configurable with
 `--rerun-attempts=<count>`) to classify deterministic regressions vs non-deterministic flakes.
 Both classes remain strict-fail in CI.
+
+In CI (`retention-release-gate` job), the generated summary markdown is published to the job summary
+(`$GITHUB_STEP_SUMMARY`) and includes stage timings, budget pass/fail, failure classification, replay
+commands, and direct artifact/log paths for triage.
 
 For full release workflow and fallback procedure when one sub-gate fails, see
 `docs/ver-102-retention-release-gate-orchestrator.md`.

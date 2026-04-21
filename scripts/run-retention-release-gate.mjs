@@ -22,6 +22,7 @@ const SUMMARY_JSON_NAME = 'retention-release-gate-summary.json'
 const SUMMARY_MD_NAME = 'retention-release-gate-summary.md'
 const TIMING_JSON_NAME = 'retention-release-gate-runtime-timing.json'
 const TIMING_MD_NAME = 'retention-release-gate-runtime-timing.md'
+const ARTIFACT_INDEX_JSON_NAME = 'retention-release-gate-artifact-index.json'
 const REPLAY_PACK_JSON_NAME = 'retention-release-gate-replay-pack.json'
 const REPLAY_PACK_MD_NAME = 'retention-release-gate-replay-pack.md'
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024
@@ -739,6 +740,49 @@ function summarizeFailureClassifications(stageResults) {
   return summary
 }
 
+function collectRerunEvidencePaths(stage) {
+  if (!stage || !stage.rerunDiagnostics || !Array.isArray(stage.rerunDiagnostics.attempts)) {
+    return []
+  }
+
+  const paths = []
+  for (const attempt of stage.rerunDiagnostics.attempts) {
+    if (typeof attempt.stdoutLogPath === 'string' && attempt.stdoutLogPath.length > 0) {
+      paths.push(attempt.stdoutLogPath)
+    }
+    if (typeof attempt.stderrLogPath === 'string' && attempt.stderrLogPath.length > 0) {
+      paths.push(attempt.stderrLogPath)
+    }
+    if (Array.isArray(attempt.artifactPaths)) {
+      for (const artifactPath of attempt.artifactPaths) {
+        if (typeof artifactPath === 'string' && artifactPath.length > 0) {
+          paths.push(artifactPath)
+        }
+      }
+    }
+  }
+
+  return paths
+}
+
+function uniqueNonEmptyPaths(paths) {
+  const uniquePaths = []
+  const seen = new Set()
+
+  for (const pathValue of paths) {
+    if (typeof pathValue !== 'string' || pathValue.length === 0) {
+      continue
+    }
+    if (seen.has(pathValue)) {
+      continue
+    }
+    seen.add(pathValue)
+    uniquePaths.push(pathValue)
+  }
+
+  return uniquePaths
+}
+
 function formatRerunEvidence(rerunDiagnostics) {
   if (!rerunDiagnostics || !Array.isArray(rerunDiagnostics.attempts) || rerunDiagnostics.attempts.length === 0) {
     return 'none'
@@ -1082,6 +1126,81 @@ function renderRuntimeTimingMarkdown(timingSummary) {
   return `${lines.join('\n')}\n`
 }
 
+function formatStageArtifactList(stage) {
+  if (!Array.isArray(stage.artifactPaths) || stage.artifactPaths.length === 0) {
+    return 'n/a'
+  }
+  return stage.artifactPaths.map((artifactPath) => `\`${escapeMarkdownCell(artifactPath)}\``).join('<br>')
+}
+
+function buildArtifactIndex(summary, runtimeTiming, stageResults) {
+  const timingByStageId = new Map(runtimeTiming.stages.map((stage) => [stage.id, stage]))
+
+  return {
+    schemaVersion: 1,
+    issueIdentifier: 'VER-107',
+    generatedAt: summary.generatedAt,
+    summary: {
+      overallStatus: summary.summary.overallStatus,
+      failedStageCount: summary.failures.length,
+      runtimeBudgetBreachCount: summary.runtimeTiming.breachCount,
+    },
+    artifacts: {
+      summaryJsonPath: summary.jsonArtifactPath,
+      summaryMarkdownPath: summary.markdownArtifactPath,
+      timingJsonPath: summary.runtimeTiming.jsonArtifactPath,
+      timingMarkdownPath: summary.runtimeTiming.markdownArtifactPath,
+      replayPackJsonPath: summary.replayPack.jsonArtifactPath,
+      replayPackMarkdownPath: summary.replayPack.markdownArtifactPath,
+      artifactIndexJsonPath: summary.artifactIndexPath,
+      logsPath: summary.logsPath,
+      reportsPath: summary.reportsPath,
+    },
+    stages: stageResults.map((stage) => {
+      const timingStage = timingByStageId.get(stage.id) ?? null
+      const classificationEvidencePaths =
+        stage.status === 'fail'
+          ? uniqueNonEmptyPaths([
+              summary.jsonArtifactPath,
+              summary.replayPack.jsonArtifactPath,
+              stage.stdoutLogPath,
+              stage.stderrLogPath,
+              ...collectRerunEvidencePaths(stage),
+            ])
+          : []
+
+      return {
+        stageId: stage.id,
+        stageTitle: stage.title,
+        status: stage.status,
+        timing: {
+          runtimeTimingJsonPath: summary.runtimeTiming.jsonArtifactPath,
+          runtimeTimingMarkdownPath: summary.runtimeTiming.markdownArtifactPath,
+          durationMs: timingStage ? timingStage.durationMs : stage.durationMs,
+          configuredBudgetMs: timingStage ? timingStage.configuredBudgetMs : null,
+          overBudgetMs: timingStage ? timingStage.overBudgetMs : 0,
+        },
+        replay: {
+          replayPackJsonPath: summary.replayPack.jsonArtifactPath,
+          replayPackMarkdownPath: summary.replayPack.markdownArtifactPath,
+          replayCommand: `npm run gate:retention:replay -- --stage=${stage.id}`,
+          defaultFailedReplayCommand: 'npm run gate:retention:replay',
+        },
+        artifacts: {
+          stdoutLogPath: stage.stdoutLogPath,
+          stderrLogPath: stage.stderrLogPath,
+          stageArtifactPaths: stage.artifactPaths,
+        },
+        classification: {
+          classification: stage.failureClassification,
+          classificationLabel: stage.status === 'fail' ? toFailureClassificationLabel(stage.failureClassification) : null,
+          evidencePaths: classificationEvidencePaths,
+        },
+      }
+    }),
+  }
+}
+
 function renderMarkdownSummary(summary) {
   const lines = [
     '# Tiny Ranch Retention Release Gate',
@@ -1149,6 +1268,16 @@ function renderMarkdownSummary(summary) {
     lines.push('')
   }
 
+  lines.push('## Stage Artifacts', '')
+  lines.push('| Stage | Stdout log | Stderr log | Stage artifacts | Replay command |')
+  lines.push('| --- | --- | --- | --- | --- |')
+  for (const stage of summary.stages) {
+    lines.push(
+      `| ${escapeMarkdownCell(stage.id)} | ${stage.stdoutLogPath ? `\`${escapeMarkdownCell(stage.stdoutLogPath)}\`` : 'n/a'} | ${stage.stderrLogPath ? `\`${escapeMarkdownCell(stage.stderrLogPath)}\`` : 'n/a'} | ${formatStageArtifactList(stage)} | \`npm run gate:retention:replay -- --stage=${escapeMarkdownCell(stage.id)}\` |`,
+    )
+  }
+  lines.push('')
+
   lines.push('## Replay Pack', '')
   lines.push(`- Failed stages captured: ${summary.replayPack.failedStageCount}`)
   lines.push(`- Replay JSON: \`${summary.replayPack.jsonArtifactPath}\``)
@@ -1164,6 +1293,7 @@ function renderMarkdownSummary(summary) {
   lines.push(`- Runtime timing Markdown: \`${summary.runtimeTiming.markdownArtifactPath}\``)
   lines.push(`- Replay pack JSON: \`${summary.replayPack.jsonArtifactPath}\``)
   lines.push(`- Replay pack Markdown: \`${summary.replayPack.markdownArtifactPath}\``)
+  lines.push(`- Artifact index JSON: \`${summary.artifactIndexPath}\``)
   lines.push(`- Logs: \`${summary.logsPath}\``)
   lines.push(`- Reports: \`${summary.reportsPath}\``)
   lines.push('')
@@ -1207,6 +1337,7 @@ function run() {
   const summaryMarkdownPath = path.join(options.outputDir, SUMMARY_MD_NAME)
   const timingJsonPath = path.join(options.outputDir, TIMING_JSON_NAME)
   const timingMarkdownPath = path.join(options.outputDir, TIMING_MD_NAME)
+  const artifactIndexJsonPath = path.join(options.outputDir, ARTIFACT_INDEX_JSON_NAME)
   const replayPackDir = path.join(options.outputDir, REPLAY_PACK_DIR_NAME)
   const replayPackJsonPath = path.join(replayPackDir, REPLAY_PACK_JSON_NAME)
   const replayPackMarkdownPath = path.join(replayPackDir, REPLAY_PACK_MD_NAME)
@@ -1272,6 +1403,7 @@ function run() {
       jsonArtifactPath: toRelativeRepoPath(replayPackJsonPath),
       markdownArtifactPath: toRelativeRepoPath(replayPackMarkdownPath),
     },
+    artifactIndexPath: toRelativeRepoPath(artifactIndexJsonPath),
     jsonArtifactPath: toRelativeRepoPath(summaryJsonPath),
     markdownArtifactPath: toRelativeRepoPath(summaryMarkdownPath),
     logsPath: toRelativeRepoPath(path.join(options.outputDir, LOG_DIR_NAME)),
@@ -1290,6 +1422,9 @@ function run() {
   replayPack.replayDefaults.packPath = toRelativeRepoPath(replayPackJsonPath)
   replayPack.artifacts.replayPackJsonPath = toRelativeRepoPath(replayPackJsonPath)
   replayPack.artifacts.replayPackMarkdownPath = toRelativeRepoPath(replayPackMarkdownPath)
+  replayPack.artifacts.artifactIndexJsonPath = summary.artifactIndexPath
+
+  const artifactIndex = buildArtifactIndex(summary, runtimeTiming, stageResults)
 
   fs.writeFileSync(timingJsonPath, `${JSON.stringify(runtimeTiming, null, 2)}\n`, 'utf8')
   fs.writeFileSync(timingMarkdownPath, renderRuntimeTimingMarkdown(runtimeTiming), 'utf8')
@@ -1303,6 +1438,7 @@ function run() {
     ),
     'utf8',
   )
+  fs.writeFileSync(artifactIndexJsonPath, `${JSON.stringify(artifactIndex, null, 2)}\n`, 'utf8')
   fs.writeFileSync(summaryJsonPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8')
   fs.writeFileSync(summaryMarkdownPath, renderMarkdownSummary(summary), 'utf8')
 
@@ -1313,6 +1449,7 @@ function run() {
   process.stdout.write(`- ${runtimeTiming.markdownArtifactPath}\n`)
   process.stdout.write(`- ${summary.replayPack.jsonArtifactPath}\n`)
   process.stdout.write(`- ${summary.replayPack.markdownArtifactPath}\n`)
+  process.stdout.write(`- ${summary.artifactIndexPath}\n`)
   process.stdout.write(`- ${summary.logsPath}\n`)
   process.stdout.write(`- ${summary.reportsPath}\n`)
 

@@ -45,6 +45,7 @@ Running the gate writes:
 - `artifacts/retention-release-gate/retention-release-gate-summary.md`
 - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
 - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
+- `artifacts/retention-release-gate/retention-release-gate-artifact-index.json`
 - `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.json`
 - `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.md`
 - `artifacts/retention-release-gate/logs/*.log` (per-stage stdout/stderr)
@@ -61,6 +62,29 @@ The summary explicitly records:
 - deterministic replay metadata (exact command, input fixture refs, stage env overrides, runtime context)
 - runtime budget status (total + stage-level breaches)
 - artifact/log paths for debugging and release triage
+- stage-level artifact index mapping (timing report + replay pack + classification evidence paths)
+
+## CI Summary Publishing
+
+The `retention-release-gate` job appends
+`artifacts/retention-release-gate/retention-release-gate-summary.md` directly to
+`$GITHUB_STEP_SUMMARY` on every run (`if: always()`), then prints the artifact-index JSON path.
+
+This gives a single CI-first triage view with:
+
+- stage timings
+- runtime budget pass/fail state
+- deterministic-vs-flaky failure classification
+- replay command pointers
+- direct paths to logs, reports, and stage artifacts
+
+## <5 Minute Failure Triage Path (From CI Output)
+
+1. Open CI job summary (`retention-release-gate` job) and read the `Stage Summary` + `Failures` table.
+2. Use the `Stage Artifacts` table to open `stdout/stderr` logs and stage artifact paths for the first failed stage.
+3. If runtime budgets failed, open `retention-release-gate-runtime-timing.md` and inspect `over budget (ms)` rows.
+4. Open `retention-release-gate-artifact-index.json` for machine-readable stage mapping to timing and replay artifacts.
+5. Reproduce with `npm run gate:retention:replay` (or `--stage=<stage-id>`), apply fix, then rerun full gate.
 
 ## Standard Release Workflow
 
@@ -79,14 +103,15 @@ The summary explicitly records:
 ## Fallback Procedure On Sub-Gate Failure
 
 1. Open `artifacts/retention-release-gate/retention-release-gate-summary.md`.
-2. Open `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.md`.
-3. Locate the first failed stage and read:
+2. Open `artifacts/retention-release-gate/retention-release-gate-artifact-index.json`.
+3. Open `artifacts/retention-release-gate/replay-pack/retention-release-gate-replay-pack.md`.
+4. Locate the first failed stage and read:
    - `logs/<stage>.stdout.log`
    - `logs/<stage>.stderr.log`
-4. Re-run only that stage command from captured context:
+5. Re-run only that stage command from captured context:
    - `npm run gate:retention:replay -- --stage=<stage-id>`
-5. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
-6. If runtime budget breaches occur with passing stages, open:
+6. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
+7. If runtime budget breaches occur with passing stages, open:
    - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`
    - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.json`
    then follow the remediation playbook in `docs/ver-104-retention-gate-ci-runtime-budget.md`.
