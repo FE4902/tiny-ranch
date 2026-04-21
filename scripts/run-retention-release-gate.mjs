@@ -25,6 +25,7 @@ const TIMING_MD_NAME = 'retention-release-gate-runtime-timing.md'
 const REPLAY_PACK_JSON_NAME = 'retention-release-gate-replay-pack.json'
 const REPLAY_PACK_MD_NAME = 'retention-release-gate-replay-pack.md'
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024
+const DEFAULT_RERUN_ATTEMPTS = 1
 const REPLAY_CONTEXT_ENV_KEYS = [
   'CI',
   'GITHUB_ACTIONS',
@@ -126,6 +127,7 @@ function printUsage() {
       'Options:',
       '  --output-dir=<path>         Output directory for summary + stage logs.',
       '  --runtime-budgets=<path>    Runtime budget fixture path override.',
+      `  --rerun-attempts=<count>    Failed-stage rerun attempts for flake diagnostics (default: ${DEFAULT_RERUN_ATTEMPTS}).`,
       '  --no-fail-fast              Continue non-blocked stages after a hard-blocker fails.',
       '  --help                      Show this message.',
       '',
@@ -137,6 +139,7 @@ function parseArgs(argv) {
   const options = {
     outputDir: DEFAULT_OUTPUT_DIR,
     runtimeBudgetsPath: DEFAULT_RUNTIME_BUDGETS_PATH,
+    rerunAttempts: DEFAULT_RERUN_ATTEMPTS,
     failFast: true,
   }
 
@@ -171,6 +174,15 @@ function parseArgs(argv) {
       continue
     }
 
+    if (arg.startsWith('--rerun-attempts=')) {
+      const rawCount = arg.slice('--rerun-attempts='.length).trim()
+      if (rawCount.length === 0) {
+        throw new Error('--rerun-attempts requires a positive integer.')
+      }
+      options.rerunAttempts = parsePositiveInteger(rawCount, 'rerun-attempts')
+      continue
+    }
+
     throw new Error(`Unknown argument: ${arg}`)
   }
 
@@ -186,6 +198,14 @@ function readJson(filePath, description) {
       `Could not parse ${description} at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
     )
   }
+}
+
+function parsePositiveInteger(raw, fieldName) {
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${fieldName} must be a positive integer.`)
+  }
+  return value
 }
 
 function parsePositiveNumber(raw, fieldName) {
@@ -319,12 +339,14 @@ function resolveFixtureRefs(fixtureRefs = []) {
   return fixtureRefs.map((fixturePath) => toRelativeRepoPath(path.resolve(repoRoot, fixturePath)))
 }
 
-function writeLogs(outputDir, stageId, result) {
+function writeLogs(outputDir, stageId, result, suffix = null) {
   const logsDir = path.join(outputDir, LOG_DIR_NAME)
   fs.mkdirSync(logsDir, { recursive: true })
 
-  const stdoutPath = path.join(logsDir, `${stageId}.stdout.log`)
-  const stderrPath = path.join(logsDir, `${stageId}.stderr.log`)
+  const suffixLabel =
+    typeof suffix === 'string' && suffix.trim().length > 0 ? `.${suffix.trim()}` : ''
+  const stdoutPath = path.join(logsDir, `${stageId}${suffixLabel}.stdout.log`)
+  const stderrPath = path.join(logsDir, `${stageId}${suffixLabel}.stderr.log`)
 
   fs.writeFileSync(stdoutPath, result.stdout, 'utf8')
   fs.writeFileSync(stderrPath, result.stderr, 'utf8')
@@ -492,7 +514,7 @@ function resolveGitMetadata() {
   }
 }
 
-function buildStageResult(definition, options) {
+function buildStageResult(definition, options, replayContextEnv) {
   const reportsDir = path.join(options.outputDir, REPORT_DIR_NAME)
   fs.mkdirSync(reportsDir, { recursive: true })
 
@@ -518,7 +540,10 @@ function buildStageResult(definition, options) {
     artifacts.push(toRelativeRepoPath(path.join(healthOutputDir, 'logs')))
   }
 
-  const rawResult = runProcess(command[0], command.slice(1), env)
+  const rawResult = runProcess(command[0], command.slice(1), {
+    ...replayContextEnv,
+    ...env,
+  })
   const logPaths = writeLogs(options.outputDir, definition.id, rawResult)
 
   let metrics = {}
@@ -541,6 +566,68 @@ function buildStageResult(definition, options) {
   const envOverrides = Object.fromEntries(
     Object.entries(env).map(([key, value]) => [key, normalizeReplayValue(value)]),
   )
+  const rerunAttempts = []
+  let failureClassification = null
+
+  if (rawResult.exitCode !== 0) {
+    for (let attempt = 1; attempt <= options.rerunAttempts; attempt += 1) {
+      const rerunCommand = [...command]
+      const rerunEnv = { ...env }
+      const rerunArtifacts = []
+
+      if (definition.kind === 'playwright') {
+        const rerunReportPath = path.join(reportsDir, `${definition.id}.rerun-${attempt}.playwright.json`)
+        rerunEnv.PLAYWRIGHT_JSON_OUTPUT_NAME = rerunReportPath
+        rerunArtifacts.push(toRelativeRepoPath(rerunReportPath))
+      }
+
+      if (definition.kind === 'health_snapshot') {
+        const rerunHealthOutputDir = path.join(options.outputDir, `retention-health-rerun-${attempt}`)
+        for (let index = 0; index < rerunCommand.length; index += 1) {
+          if (rerunCommand[index].startsWith('--output-dir=')) {
+            rerunCommand[index] = `--output-dir=${rerunHealthOutputDir}`
+            break
+          }
+        }
+        rerunArtifacts.push(toRelativeRepoPath(path.join(rerunHealthOutputDir, 'retention-health-summary.json')))
+        rerunArtifacts.push(toRelativeRepoPath(path.join(rerunHealthOutputDir, 'retention-health-summary.md')))
+        rerunArtifacts.push(toRelativeRepoPath(path.join(rerunHealthOutputDir, 'logs')))
+      }
+
+      const rerunResult = runProcess(rerunCommand[0], rerunCommand.slice(1), {
+        ...replayContextEnv,
+        ...rerunEnv,
+      })
+      const rerunLogs = writeLogs(options.outputDir, definition.id, rerunResult, `rerun-${attempt}`)
+      const rerunStatus = rerunResult.exitCode === 0 ? 'pass' : 'fail'
+
+      rerunAttempts.push({
+        attempt,
+        status: rerunStatus,
+        command: formatCommand(rerunCommand),
+        exitCode: rerunResult.exitCode,
+        durationMs: rerunResult.durationMs,
+        startedAt: rerunResult.startedAt,
+        finishedAt: rerunResult.finishedAt,
+        errorMessage: rerunResult.errorMessage,
+        envOverrides: Object.fromEntries(
+          Object.entries(rerunEnv).map(([key, value]) => [key, normalizeReplayValue(value)]),
+        ),
+        artifactPaths: rerunArtifacts,
+        stdoutLogPath: toRelativeRepoPath(rerunLogs.stdoutPath),
+        stderrLogPath: toRelativeRepoPath(rerunLogs.stderrPath),
+      })
+
+      if (rerunStatus === 'pass') {
+        break
+      }
+    }
+
+    failureClassification =
+      rerunAttempts.some((attempt) => attempt.status === 'pass')
+        ? 'non_deterministic_flake'
+        : 'deterministic_failure'
+  }
 
   return {
     id: definition.id,
@@ -560,6 +647,17 @@ function buildStageResult(definition, options) {
     artifactPaths: artifacts,
     stdoutLogPath: toRelativeRepoPath(logPaths.stdoutPath),
     stderrLogPath: toRelativeRepoPath(logPaths.stderrPath),
+    failureClassification,
+    rerunDiagnostics:
+      rawResult.exitCode === 0
+        ? null
+        : {
+            configuredAttempts: options.rerunAttempts,
+            executedAttempts: rerunAttempts.length,
+            attempts: rerunAttempts,
+            classification: failureClassification,
+            classificationLabel: toFailureClassificationLabel(failureClassification),
+          },
   }
 }
 
@@ -582,6 +680,8 @@ function buildSkippedStageResult(definition, blockedByStageId) {
     artifactPaths: [],
     stdoutLogPath: null,
     stderrLogPath: null,
+    failureClassification: null,
+    rerunDiagnostics: null,
     skipReason: `Skipped after hard blocker failure in "${blockedByStageId}".`,
   }
 }
@@ -594,9 +694,58 @@ function buildFailureList(stageResults) {
       stageTitle: stage.title,
       command: stage.command,
       exitCode: stage.exitCode,
+      failureClassification: stage.failureClassification,
+      classificationLabel: toFailureClassificationLabel(stage.failureClassification),
+      replayCommand: `npm run gate:retention:replay -- --stage=${stage.id}`,
+      rerunDiagnostics: stage.rerunDiagnostics,
       stdoutLogPath: stage.stdoutLogPath,
       stderrLogPath: stage.stderrLogPath,
     }))
+}
+
+function toFailureClassificationLabel(classification) {
+  if (classification === 'non_deterministic_flake') {
+    return 'FLAKE'
+  }
+  if (classification === 'deterministic_failure') {
+    return 'DETERMINISTIC'
+  }
+  return 'UNKNOWN'
+}
+
+function summarizeFailureClassifications(stageResults) {
+  const summary = {
+    deterministicFailures: 0,
+    flakyFailures: 0,
+    unclassifiedFailures: 0,
+  }
+
+  for (const stage of stageResults) {
+    if (stage.status !== 'fail') {
+      continue
+    }
+    if (stage.failureClassification === 'deterministic_failure') {
+      summary.deterministicFailures += 1
+      continue
+    }
+    if (stage.failureClassification === 'non_deterministic_flake') {
+      summary.flakyFailures += 1
+      continue
+    }
+    summary.unclassifiedFailures += 1
+  }
+
+  summary.totalFailed = summary.deterministicFailures + summary.flakyFailures + summary.unclassifiedFailures
+  return summary
+}
+
+function formatRerunEvidence(rerunDiagnostics) {
+  if (!rerunDiagnostics || !Array.isArray(rerunDiagnostics.attempts) || rerunDiagnostics.attempts.length === 0) {
+    return 'none'
+  }
+  return rerunDiagnostics.attempts
+    .map((attempt) => `#${attempt.attempt}:${String(attempt.status).toUpperCase()}(exit=${attempt.exitCode})`)
+    .join(', ')
 }
 
 function buildRuntimeBudgetEvaluation(stageResults, runtimeBudgets) {
@@ -682,13 +831,24 @@ function buildRuntimeTimingStages(stageResults, runtimeBudgets, totalDurationMs)
   })
 }
 
-function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTiming, runtimeBudgets) {
+function buildReplayPack(
+  options,
+  generatedAt,
+  stageResults,
+  summary,
+  runtimeTiming,
+  runtimeBudgets,
+  replayContextEnv,
+) {
   const stageRecords = stageResults.map((stage) => ({
     stageId: stage.id,
     stageTitle: stage.title,
     status: stage.status,
     hardBlocker: stage.hardBlocker,
     skipReason: stage.skipReason ?? null,
+    failureClassification: stage.failureClassification,
+    classificationLabel:
+      stage.failureClassification === null ? null : toFailureClassificationLabel(stage.failureClassification),
     command: {
       binary: stage.commandParts[0] ?? null,
       args: stage.commandParts.slice(1),
@@ -710,6 +870,7 @@ function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTim
       stageArtifactPaths: stage.artifactPaths,
     },
     metricSummary: buildMetricSummary(stage),
+    rerunDiagnostics: stage.rerunDiagnostics,
   }))
 
   const failedStages = stageRecords
@@ -717,6 +878,10 @@ function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTim
     .map((stage) => ({
       stageId: stage.stageId,
       stageTitle: stage.stageTitle,
+      classification: stage.failureClassification,
+      classificationLabel:
+        stage.failureClassification === null ? null : toFailureClassificationLabel(stage.failureClassification),
+      rerunEvidence: formatRerunEvidence(stage.rerunDiagnostics),
       command: stage.command.display,
       replayCommand: `npm run gate:retention:replay -- --stage=${stage.stageId}`,
       stdoutLogPath: stage.artifacts.stdoutLogPath,
@@ -731,6 +896,7 @@ function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTim
       packPath: null,
       defaultReplayCommand: 'npm run gate:retention:replay -- --stage=<stage-id>',
       defaultFailedReplayCommand: 'npm run gate:retention:replay',
+      rerunAttempts: options.rerunAttempts,
     },
     gateRun: {
       outputDir: toRelativeRepoPath(options.outputDir),
@@ -743,13 +909,15 @@ function buildReplayPack(options, generatedAt, stageResults, summary, runtimeTim
         platform: process.platform,
         arch: process.arch,
       },
-      envContext: captureReplayContextEnv(),
+      envContext: replayContextEnv,
       summary: {
         overallStatus: summary.summary.overallStatus,
         passed: summary.summary.passed,
         failed: summary.summary.failed,
         skipped: summary.summary.skipped,
         runtimeBudgetBreaches: summary.summary.runtimeBudgetBreaches,
+        rerunAttempts: options.rerunAttempts,
+        failureClassifications: summary.summary.failureClassifications,
       },
     },
     stages: stageRecords,
@@ -771,6 +939,7 @@ function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMark
     '',
     `- Generated at: ${replayPack.generatedAt}`,
     `- Overall status: **${replayPack.gateRun.summary.overallStatus.toUpperCase()}**`,
+    `- Failed-stage rerun attempts configured: ${replayPack.replayDefaults.rerunAttempts ?? 'n/a'}`,
     `- Source summary JSON: \`${replayPack.artifacts.summaryJsonPath}\``,
     `- Runtime timing JSON: \`${replayPack.artifacts.timingJsonPath}\``,
     '',
@@ -786,11 +955,11 @@ function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMark
   if (replayPack.failedStages.length === 0) {
     lines.push('No failed stages captured in this run.', '')
   } else {
-    lines.push('| Stage | Replay command | Stdout log | Stderr log |')
-    lines.push('| --- | --- | --- | --- |')
+    lines.push('| Stage | Classification | Rerun evidence | Replay command | Stdout log | Stderr log |')
+    lines.push('| --- | --- | --- | --- | --- | --- |')
     for (const stage of replayPack.failedStages) {
       lines.push(
-        `| ${escapeMarkdownCell(stage.stageId)} | \`${escapeMarkdownCell(stage.replayCommand)}\` | \`${escapeMarkdownCell(stage.stdoutLogPath)}\` | \`${escapeMarkdownCell(stage.stderrLogPath)}\` |`,
+        `| ${escapeMarkdownCell(stage.stageId)} | ${escapeMarkdownCell(stage.classificationLabel ?? 'UNKNOWN')} | ${escapeMarkdownCell(stage.rerunEvidence)} | \`${escapeMarkdownCell(stage.replayCommand)}\` | \`${escapeMarkdownCell(stage.stdoutLogPath)}\` | \`${escapeMarkdownCell(stage.stderrLogPath)}\` |`,
       )
     }
     lines.push('')
@@ -802,8 +971,9 @@ function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMark
   lines.push('| --- | --- | --- | --- |')
   for (const stage of replayPack.stages) {
     const inputLabel = stage.fixtureRefs.length > 0 ? stage.fixtureRefs.join('<br>') : 'n/a'
+    const statusLabel = buildStageStatusLabel(stage)
     lines.push(
-      `| ${escapeMarkdownCell(stage.stageId)} | ${escapeMarkdownCell(stage.status.toUpperCase())} | \`${escapeMarkdownCell(stage.command.display)}\` | ${inputLabel} |`,
+      `| ${escapeMarkdownCell(stage.stageId)} | ${escapeMarkdownCell(statusLabel)} | \`${escapeMarkdownCell(stage.command.display)}\` | ${inputLabel} |`,
     )
   }
   lines.push('')
@@ -815,6 +985,16 @@ function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMark
   lines.push('')
 
   return `${lines.join('\n')}\n`
+}
+
+function buildStageStatusLabel(stage) {
+  if (stage.status === 'pass') {
+    return 'PASS'
+  }
+  if (stage.status === 'fail') {
+    return `FAIL (${toFailureClassificationLabel(stage.failureClassification)})`
+  }
+  return stage.skipReason ? `SKIP (${stage.skipReason})` : 'SKIP'
 }
 
 function buildMetricSummary(stage) {
@@ -910,6 +1090,7 @@ function renderMarkdownSummary(summary) {
     `- Overall status: **${summary.summary.overallStatus.toUpperCase()}**`,
     `- Fail-fast mode: ${summary.options.failFast ? 'enabled' : 'disabled'}`,
     `- Runtime budget fixture: \`${summary.options.runtimeBudgetsPath}\``,
+    `- Failed-stage rerun attempts: ${summary.options.rerunAttempts}`,
     '',
     '## Stage Summary',
     '',
@@ -918,8 +1099,7 @@ function renderMarkdownSummary(summary) {
   ]
 
   for (const stage of summary.stages) {
-    const statusLabel =
-      stage.status === 'pass' ? 'PASS' : stage.status === 'fail' ? 'FAIL' : `SKIP (${stage.skipReason ?? ''})`
+    const statusLabel = buildStageStatusLabel(stage)
     lines.push(
       `| ${escapeMarkdownCell(stage.title)} | ${escapeMarkdownCell(statusLabel)} | ${stage.durationMs} | ${escapeMarkdownCell(buildMetricSummary(stage))} | \`${escapeMarkdownCell(stage.command)}\` |`,
     )
@@ -946,15 +1126,24 @@ function renderMarkdownSummary(summary) {
     lines.push('')
   }
 
+  lines.push('', '## Failure Classification', '')
+  lines.push(
+    `- Deterministic regressions: ${summary.summary.failureClassifications.deterministicFailures}`,
+  )
+  lines.push(`- Non-deterministic flakes: ${summary.summary.failureClassifications.flakyFailures}`)
+  lines.push(`- Unclassified failures: ${summary.summary.failureClassifications.unclassifiedFailures}`)
+  lines.push('- Policy: strict fail remains enabled for all failure classes.')
+  lines.push('')
+
   lines.push('', '## Failures', '')
   if (summary.failures.length === 0) {
     lines.push('No blocking failures detected.', '')
   } else {
-    lines.push('| Stage | Exit code | Stdout log | Stderr log |')
-    lines.push('| --- | ---: | --- | --- |')
+    lines.push('| Stage | Classification | Exit code | Rerun evidence | Replay command | Stdout log | Stderr log |')
+    lines.push('| --- | --- | ---: | --- | --- | --- | --- |')
     for (const failure of summary.failures) {
       lines.push(
-        `| ${escapeMarkdownCell(failure.stageId)} | ${failure.exitCode} | \`${escapeMarkdownCell(failure.stdoutLogPath)}\` | \`${escapeMarkdownCell(failure.stderrLogPath)}\` |`,
+        `| ${escapeMarkdownCell(failure.stageId)} | ${escapeMarkdownCell(failure.classificationLabel)} | ${failure.exitCode} | ${escapeMarkdownCell(formatRerunEvidence(failure.rerunDiagnostics))} | \`${escapeMarkdownCell(failure.replayCommand)}\` | \`${escapeMarkdownCell(failure.stdoutLogPath)}\` | \`${escapeMarkdownCell(failure.stderrLogPath)}\` |`,
       )
     }
     lines.push('')
@@ -986,6 +1175,7 @@ function run() {
   const options = parseArgs(process.argv.slice(2))
   fs.mkdirSync(options.outputDir, { recursive: true })
   const runtimeBudgets = readRuntimeBudgets(options.runtimeBudgetsPath)
+  const replayContextEnv = captureReplayContextEnv()
 
   const stageResults = []
   let blockedByStageId = null
@@ -996,7 +1186,7 @@ function run() {
       continue
     }
 
-    const result = buildStageResult(definition, options)
+    const result = buildStageResult(definition, options, replayContextEnv)
     stageResults.push(result)
 
     if (options.failFast && result.status === 'fail' && definition.hardBlocker) {
@@ -1010,6 +1200,7 @@ function run() {
     failed: stageResults.filter((stage) => stage.status === 'fail').length,
     skipped: stageResults.filter((stage) => stage.status === 'skipped').length,
   }
+  const failureClassifications = summarizeFailureClassifications(stageResults)
 
   const failures = buildFailureList(stageResults)
   const summaryJsonPath = path.join(options.outputDir, SUMMARY_JSON_NAME)
@@ -1053,12 +1244,14 @@ function run() {
       outputDir: toRelativeRepoPath(options.outputDir),
       failFast: options.failFast,
       runtimeBudgetsPath: toRelativeRepoPath(options.runtimeBudgetsPath),
+      rerunAttempts: options.rerunAttempts,
     },
     git: resolveGitMetadata(),
     summary: {
       overallStatus: summaryCounts.failed > 0 || runtimeBudgetEvaluation.breachCount > 0 ? 'fail' : 'pass',
       ...summaryCounts,
       runtimeBudgetBreaches: runtimeBudgetEvaluation.breachCount,
+      failureClassifications,
     },
     blockedByStageId,
     stages: stageResults,
@@ -1074,6 +1267,8 @@ function run() {
     },
     replayPack: {
       failedStageCount: failures.length,
+      deterministicFailureCount: failureClassifications.deterministicFailures,
+      flakyFailureCount: failureClassifications.flakyFailures,
       jsonArtifactPath: toRelativeRepoPath(replayPackJsonPath),
       markdownArtifactPath: toRelativeRepoPath(replayPackMarkdownPath),
     },
@@ -1083,7 +1278,15 @@ function run() {
     reportsPath: toRelativeRepoPath(path.join(options.outputDir, REPORT_DIR_NAME)),
   }
 
-  const replayPack = buildReplayPack(options, generatedAt, stageResults, summary, runtimeTiming, runtimeBudgets)
+  const replayPack = buildReplayPack(
+    options,
+    generatedAt,
+    stageResults,
+    summary,
+    runtimeTiming,
+    runtimeBudgets,
+    replayContextEnv,
+  )
   replayPack.replayDefaults.packPath = toRelativeRepoPath(replayPackJsonPath)
   replayPack.artifacts.replayPackJsonPath = toRelativeRepoPath(replayPackJsonPath)
   replayPack.artifacts.replayPackMarkdownPath = toRelativeRepoPath(replayPackMarkdownPath)
@@ -1119,6 +1322,14 @@ function run() {
       process.stderr.write(
         `[retention-release-gate] blocking stage failed: ${firstFailure ? firstFailure.stageId : 'unknown'}\n`,
       )
+      process.stderr.write(
+        `[retention-release-gate] failure classification: deterministic=${failureClassifications.deterministicFailures} flaky=${failureClassifications.flakyFailures} unclassified=${failureClassifications.unclassifiedFailures}\n`,
+      )
+      for (const failure of failures) {
+        process.stderr.write(
+          `- [${failure.stageId}] class=${failure.classificationLabel} reruns=${formatRerunEvidence(failure.rerunDiagnostics)} replay="${failure.replayCommand}"\n`,
+        )
+      }
     }
 
     if (runtimeBudgetEvaluation.breachCount > 0) {

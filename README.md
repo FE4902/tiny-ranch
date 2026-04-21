@@ -247,6 +247,10 @@ deterministic order, fails fast on hard blockers, and writes aggregate release-r
 - `artifacts/retention-release-gate/retention-release-gate-summary.json`
 - `artifacts/retention-release-gate/retention-release-gate-summary.md`
 
+Failed stages are automatically rerun once (configurable with
+`--rerun-attempts=<count>`) to classify deterministic regressions vs non-deterministic flakes.
+Both classes remain strict-fail in CI.
+
 For full release workflow and fallback procedure when one sub-gate fails, see
 `docs/ver-102-retention-release-gate-orchestrator.md`.
 

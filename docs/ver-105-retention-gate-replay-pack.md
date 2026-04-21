@@ -27,6 +27,8 @@ Captured stage metadata includes:
 - fixture/input references per stage
 - stage runtime metadata (start/end/duration/exit code)
 - stage artifact links (stdout/stderr logs + reports)
+- failure classification (`deterministic_failure` or `non_deterministic_flake`) when a stage fails
+- rerun diagnostics evidence (`#attempt:status(exit=code)`) used to assign that classification
 
 ## CI Behavior
 
@@ -49,6 +51,13 @@ This ensures replay context is preserved specifically on failing CI runs.
 6. Re-run full release gate:
    - `npm run gate:retention:release`
 7. Confirm both gate summary and runtime timing artifacts are `PASS` before merge.
+
+## Rerun Attempt Tuning
+
+- Default rerun attempts: `1` (one retry after the first failed attempt).
+- Override locally: `npm run gate:retention:release -- --rerun-attempts=<count>`.
+- Increase attempts only to improve diagnostic signal; the gate still fails on both deterministic failures and flakes.
+- Do not use rerun attempts to auto-pass flaky runs. Strict-fail remains the default and expected CI policy.
 
 ## Local Helper Options
 

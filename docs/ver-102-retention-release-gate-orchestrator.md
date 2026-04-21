@@ -27,13 +27,15 @@ The orchestrator always runs stages in this order:
 ## Fail-Fast Behavior
 
 - Default mode is fail-fast for hard blockers.
-- If a stage fails, later stages are marked `skipped` and the command exits non-zero.
+- If a stage fails, the gate reruns that stage (default: 1 rerun attempt) using captured replay context to classify deterministic regression vs non-deterministic flake.
+- Later stages are still marked `skipped` and the command exits non-zero for both deterministic failures and flakes (strict-fail policy).
 - The failing stage still writes stdout/stderr logs and any stage artifacts needed for triage.
 
 Optional local override:
 
 - `npm run gate:retention:release -- --no-fail-fast`
 - `npm run gate:retention:release -- --runtime-budgets=<path>`
+- `npm run gate:retention:release -- --rerun-attempts=<count>`
 
 ## Artifacts
 
@@ -53,6 +55,8 @@ The summary explicitly records:
 
 - stage order and status (`pass`, `fail`, `skipped`)
 - stage command and exit code
+- failure classification (`deterministic_failure` vs `non_deterministic_flake`) for failed stages
+- rerun attempt evidence (attempt index, status, exit code, logs)
 - key stage metrics (scenario counts, soak coverage, Playwright pass/fail counts)
 - deterministic replay metadata (exact command, input fixture refs, stage env overrides, runtime context)
 - runtime budget status (total + stage-level breaches)
@@ -64,6 +68,7 @@ The summary explicitly records:
 2. If pass, archive or attach `artifacts/retention-release-gate/*` to release notes.
 3. If fail, inspect:
    - stage failures in `retention-release-gate-summary.md`
+   - deterministic vs flake classification and rerun evidence in the same summary
    - runtime budget breaches in `retention-release-gate-runtime-timing.md`
    - replay metadata in `replay-pack/retention-release-gate-replay-pack.md`
 4. Reproduce the first failed stage with:
