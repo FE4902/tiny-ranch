@@ -46,19 +46,10 @@ export class TextButton extends Phaser.GameObjects.Container {
 
     this.add([this.background, this.label])
     this.setSize(this.background.width, this.background.height)
-    this.setInteractive(
-      new Phaser.Geom.Rectangle(
-        -this.background.width / 2,
-        -this.background.height / 2,
-        this.background.width,
-        this.background.height,
-      ),
-      Phaser.Geom.Rectangle.Contains,
-    )
-
-    this.on('pointerdown', onClick)
-    this.on('pointerover', () => this.background.setAlpha(1))
-    this.on('pointerout', () => this.background.setAlpha(0.98))
+    this.background.setInteractive({ useHandCursor: true })
+    this.background.on('pointerdown', onClick)
+    this.background.on('pointerover', () => this.background.setAlpha(1))
+    this.background.on('pointerout', () => this.background.setAlpha(0.98))
 
     this.setData('palette', palette)
   }

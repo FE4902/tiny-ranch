@@ -4,8 +4,9 @@ import type { BarnProcessingRecipeId } from '../config/barn'
 import type { CropSeedId } from '../config/crops'
 import { getCropSeedConfig } from '../config/crops'
 import { getItemSellPrice } from '../config/economy'
-import { SCENE_KEYS } from '../constants'
+import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
+import type { BarnScene, BarnSceneDebugUiSnapshot } from '../scenes/BarnScene'
 import type { RanchScene } from '../scenes/RanchScene'
 import { getGameServices } from '../systems/runtime'
 
@@ -133,6 +134,17 @@ interface BarnClaimDebugResult {
   jobCount: number
 }
 
+interface BarnUiSnapshot {
+  selectedRecipeId: string
+  inventoryText: string
+  recipeDetailText: string
+  jobListText: string
+  feedbackText: string
+  cycleRecipeButtonCenter: ScreenPoint | null
+  startRecipeButtonCenter: ScreenPoint | null
+  claimButtonCenter: ScreenPoint | null
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
@@ -140,8 +152,10 @@ interface TinyRanchSmokeHarness {
   getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
   getBarnSnapshot(): BarnSnapshot
+  getBarnUiSnapshot(): BarnUiSnapshot
   debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
   debugClaimBarnJob(jobId: string): BarnClaimDebugResult
+  debugNavigate(sceneKey: PlayableSceneKey): void
   debugSaveGameState(): unknown
   debugPersistLegacySaveWithoutStreak(): void
   getTileScreenPoint(tileX: number, tileY: number): ScreenPoint
@@ -173,6 +187,30 @@ function resolveRanchScene(game: Phaser.Game): RanchScene | null {
   return game.scene.getScene(SCENE_KEYS.ranch) as RanchScene
 }
 
+function resolveBarnScene(game: Phaser.Game): BarnScene | null {
+  if (!game.scene.isActive(SCENE_KEYS.barn)) {
+    return null
+  }
+
+  return game.scene.getScene(SCENE_KEYS.barn) as BarnScene
+}
+
+function resolveServiceScene(game: Phaser.Game): Phaser.Scene | null {
+  if (game.scene.isActive(SCENE_KEYS.ui)) {
+    return game.scene.getScene(SCENE_KEYS.ui)
+  }
+
+  if (game.scene.isActive(SCENE_KEYS.ranch)) {
+    return game.scene.getScene(SCENE_KEYS.ranch)
+  }
+
+  if (game.scene.isActive(SCENE_KEYS.barn)) {
+    return game.scene.getScene(SCENE_KEYS.barn)
+  }
+
+  return null
+}
+
 function getRanchSceneOrThrow(game: Phaser.Game): RanchScene {
   const scene = resolveRanchScene(game)
   if (scene) {
@@ -180,6 +218,24 @@ function getRanchSceneOrThrow(game: Phaser.Game): RanchScene {
   }
 
   throw new Error('Ranch scene is not active yet.')
+}
+
+function getBarnSceneOrThrow(game: Phaser.Game): BarnScene {
+  const scene = resolveBarnScene(game)
+  if (scene) {
+    return scene
+  }
+
+  throw new Error('Barn scene is not active yet.')
+}
+
+function getServiceSceneOrThrow(game: Phaser.Game): Phaser.Scene {
+  const scene = resolveServiceScene(game)
+  if (scene) {
+    return scene
+  }
+
+  throw new Error('No active game scene is available yet.')
 }
 
 function getDebugBindings(scene: RanchScene): RanchSceneDebugBindings {
@@ -191,19 +247,22 @@ function waitForReady(game: Phaser.Game, timeoutMs: number): Promise<void> {
 
   return new Promise((resolve, reject) => {
     const checkReady = (): void => {
-      const scene = resolveRanchScene(game)
+      const scene = resolveServiceScene(game)
       if (scene) {
         try {
-          getGameServices(scene)
-          resolve()
-          return
+          const services = getGameServices(scene)
+          const activeScene = services.getActiveScene()
+          if (activeScene !== null && game.scene.isActive(activeScene)) {
+            resolve()
+            return
+          }
         } catch {
           // Keep polling until services are available.
         }
       }
 
       if (Date.now() - startedAt >= timeoutMs) {
-        reject(new Error(`Timed out waiting for ranch scene readiness after ${timeoutMs}ms.`))
+        reject(new Error(`Timed out waiting for Tiny Ranch scene readiness after ${timeoutMs}ms.`))
         return
       }
 
@@ -291,7 +350,7 @@ function debugSeedInventory(game: Phaser.Game, itemId: string, quantity: number)
     throw new Error('Inventory quantity must be a positive integer.')
   }
 
-  const services = getGameServices(getRanchSceneOrThrow(game))
+  const services = getGameServices(getServiceSceneOrThrow(game))
   services.addInventoryItem(itemId, Math.floor(quantity))
 }
 
@@ -465,8 +524,7 @@ function runCoreLoopFlow(game: Phaser.Game): CoreLoopRunResult {
 }
 
 function getSnapshot(game: Phaser.Game): SmokeSnapshot {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const expansionState = services.getExpansionStateSnapshot()
   const readResult = services.readSavedGameState()
 
@@ -482,8 +540,7 @@ function getSnapshot(game: Phaser.Game): SmokeSnapshot {
 }
 
 function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const snapshot = services.getReturnObjectiveStateSnapshot()
 
   return {
@@ -504,8 +561,7 @@ function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot 
 }
 
 function debugClaimCurrentReturnObjective(game: Phaser.Game): ReturnObjectiveClaimDebugResult {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const currentSnapshot = services.getReturnObjectiveStateSnapshot()
 
   const objectiveLoopEnabled = currentSnapshot.objectiveLoopEnabled
@@ -539,8 +595,7 @@ function debugClaimCurrentReturnObjective(game: Phaser.Game): ReturnObjectiveCla
 }
 
 function getBarnSnapshot(game: Phaser.Game): BarnSnapshot {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const snapshot = services.getBarnStateSnapshot()
 
   return {
@@ -555,9 +610,24 @@ function getBarnSnapshot(game: Phaser.Game): BarnSnapshot {
   }
 }
 
+function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
+  const scene = getBarnSceneOrThrow(game)
+  const snapshot: BarnSceneDebugUiSnapshot = scene.getDebugUiSnapshot()
+
+  return {
+    selectedRecipeId: snapshot.selectedRecipeId,
+    inventoryText: snapshot.inventoryText,
+    recipeDetailText: snapshot.recipeDetailText,
+    jobListText: snapshot.jobListText,
+    feedbackText: snapshot.feedbackText,
+    cycleRecipeButtonCenter: snapshot.cycleRecipeButtonCenter,
+    startRecipeButtonCenter: snapshot.startRecipeButtonCenter,
+    claimButtonCenter: snapshot.claimButtonCenter,
+  }
+}
+
 function debugStartBarnJob(game: Phaser.Game, recipeId: BarnProcessingRecipeId): BarnStartDebugResult {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const result = services.startBarnJob(recipeId, 'smoke:barn_start')
 
   return {
@@ -569,8 +639,7 @@ function debugStartBarnJob(game: Phaser.Game, recipeId: BarnProcessingRecipeId):
 }
 
 function debugClaimBarnJob(game: Phaser.Game, jobId: string): BarnClaimDebugResult {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const result = services.claimBarnJob(jobId, 'smoke:barn_claim')
 
   return {
@@ -582,8 +651,7 @@ function debugClaimBarnJob(game: Phaser.Game, jobId: string): BarnClaimDebugResu
 }
 
 function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   const saveState = services.saveGameState()
   const legacyPayload = { ...(saveState as unknown as Record<string, unknown>) }
   delete legacyPayload.returnObjectiveStreak
@@ -592,9 +660,13 @@ function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
 }
 
 function debugSaveGameState(game: Phaser.Game): unknown {
-  const ranchScene = getRanchSceneOrThrow(game)
-  const services = getGameServices(ranchScene)
+  const services = getGameServices(getServiceSceneOrThrow(game))
   return services.saveGameState()
+}
+
+function debugNavigate(game: Phaser.Game, sceneKey: PlayableSceneKey): void {
+  const services = getGameServices(getServiceSceneOrThrow(game))
+  services.navigate(sceneKey)
 }
 
 export function installSmokeHarness(game: Phaser.Game): void {
@@ -614,9 +686,13 @@ export function installSmokeHarness(game: Phaser.Game): void {
     debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
       debugClaimCurrentReturnObjective(game),
     getBarnSnapshot: (): BarnSnapshot => getBarnSnapshot(game),
+    getBarnUiSnapshot: (): BarnUiSnapshot => getBarnUiSnapshot(game),
     debugStartBarnJob: (recipeId: BarnProcessingRecipeId): BarnStartDebugResult =>
       debugStartBarnJob(game, recipeId),
     debugClaimBarnJob: (jobId: string): BarnClaimDebugResult => debugClaimBarnJob(game, jobId),
+    debugNavigate: (sceneKey: PlayableSceneKey): void => {
+      debugNavigate(game, sceneKey)
+    },
     debugSaveGameState: (): unknown => debugSaveGameState(game),
     debugPersistLegacySaveWithoutStreak: (): void => {
       debugPersistLegacySaveWithoutStreak(game)

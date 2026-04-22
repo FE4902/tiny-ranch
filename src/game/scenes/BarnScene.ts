@@ -16,6 +16,22 @@ const PANEL_TOP = 112
 const READY_POLL_INTERVAL_MS = 1_000
 const DEFAULT_BARN_RECIPE_ID: BarnProcessingRecipeId = barnProcessingRecipeIds[0] ?? 'cheese_press'
 
+export interface BarnSceneDebugPoint {
+  x: number
+  y: number
+}
+
+export interface BarnSceneDebugUiSnapshot {
+  selectedRecipeId: BarnProcessingRecipeId
+  inventoryText: string
+  recipeDetailText: string
+  jobListText: string
+  feedbackText: string
+  cycleRecipeButtonCenter: BarnSceneDebugPoint | null
+  startRecipeButtonCenter: BarnSceneDebugPoint | null
+  claimButtonCenter: BarnSceneDebugPoint | null
+}
+
 export class BarnScene extends BasePlayScene {
   protected readonly title = 'Barn Processing'
   protected readonly subtitle = 'CONFIG-DRIVEN WORK QUEUE'
@@ -106,8 +122,25 @@ export class BarnScene extends BasePlayScene {
     })
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.resizeBarnUi)
+    const handleCycleRecipeHotkey = (): void => {
+      this.selectNextRecipe()
+    }
+    const handleStartRecipeHotkey = (): void => {
+      this.handleRecipeStart(this.selectedRecipeId, 'barn:keyboard')
+    }
+    const handleClaimReadyHotkey = (): void => {
+      this.handleClaimReadyJob('barn:keyboard')
+    }
+
+    this.input.keyboard?.on('keydown-Q', handleCycleRecipeHotkey)
+    this.input.keyboard?.on('keydown-W', handleStartRecipeHotkey)
+    this.input.keyboard?.on('keydown-E', handleClaimReadyHotkey)
+
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.resizeBarnUi)
+      this.input.keyboard?.off('keydown-Q', handleCycleRecipeHotkey)
+      this.input.keyboard?.off('keydown-W', handleStartRecipeHotkey)
+      this.input.keyboard?.off('keydown-E', handleClaimReadyHotkey)
       this.unsubscribeInventoryChanges?.()
       this.unsubscribeBarnChanges?.()
       this.refreshTimer?.destroy()
@@ -124,11 +157,27 @@ export class BarnScene extends BasePlayScene {
     this.refreshBarnUi()
   }
 
-  private handleRecipeStart(recipeId: BarnProcessingRecipeId): void {
+  public getDebugUiSnapshot(): BarnSceneDebugUiSnapshot {
+    return {
+      selectedRecipeId: this.selectedRecipeId,
+      inventoryText: this.inventoryText?.text ?? '',
+      recipeDetailText: this.recipeDetailText?.text ?? '',
+      jobListText: this.jobListText?.text ?? '',
+      feedbackText: this.feedbackText?.text ?? '',
+      cycleRecipeButtonCenter: this.resolveButtonCenter(this.cycleRecipeButton),
+      startRecipeButtonCenter: this.resolveButtonCenter(this.startRecipeButton),
+      claimButtonCenter: this.resolveButtonCenter(this.claimButton),
+    }
+  }
+
+  private handleRecipeStart(
+    recipeId: BarnProcessingRecipeId,
+    source: string = 'barn:pointer',
+  ): void {
     this.selectedRecipeId = recipeId
     const recipe = getBarnProcessingRecipeConfig(recipeId)
     const services = getGameServices(this)
-    const result = services.startBarnJob(recipeId, 'barn:pointer')
+    const result = services.startBarnJob(recipeId, source)
 
     if (!this.feedbackText) {
       return
@@ -161,7 +210,7 @@ export class BarnScene extends BasePlayScene {
     this.refreshBarnUi()
   }
 
-  private handleClaimReadyJob(): void {
+  private handleClaimReadyJob(source: string = 'barn:pointer'): void {
     const services = getGameServices(this)
     const nextReadyJob = services.getBarnStateSnapshot().jobs.find((job) => job.isReady) ?? null
 
@@ -176,7 +225,7 @@ export class BarnScene extends BasePlayScene {
       return
     }
 
-    const result = services.claimBarnJob(nextReadyJob.id, 'barn:pointer')
+    const result = services.claimBarnJob(nextReadyJob.id, source)
     if (result.result !== 'claimed') {
       this.feedbackText.setColor('#ff9f7a')
       this.feedbackText.setText('Job is still processing.')
@@ -236,6 +285,7 @@ export class BarnScene extends BasePlayScene {
         `Output ${this.formatLineItems(selectedRecipe.outputs)}`,
         `Fee ${selectedRecipe.fee} coin${selectedRecipe.fee === 1 ? '' : 's'}`,
         `Duration ${this.formatDurationLabel(selectedRecipe.durationMs)}`,
+        'Controls tap the buttons or press Q / W / E.',
         selectedRecipe.description,
       ].join('\n'),
     )
@@ -334,5 +384,16 @@ export class BarnScene extends BasePlayScene {
         return `${index + 1}. ${job.label} -> ${this.formatLineItems(job.outputs)} (${status})`
       }),
     ].join('\n')
+  }
+
+  private resolveButtonCenter(button?: TextButton): BarnSceneDebugPoint | null {
+    if (!button) {
+      return null
+    }
+
+    return {
+      x: button.x,
+      y: button.y,
+    }
   }
 }
