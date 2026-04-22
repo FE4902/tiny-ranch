@@ -1,5 +1,6 @@
 import type Phaser from 'phaser'
 
+import type { BarnProcessingRecipeId } from '../config/barn'
 import type { CropSeedId } from '../config/crops'
 import { getCropSeedConfig } from '../config/crops'
 import { getItemSellPrice } from '../config/economy'
@@ -105,12 +106,42 @@ interface ReturnObjectiveClaimDebugResult {
   assignmentCycleAfterClaim: number
 }
 
+interface BarnJobSnapshot {
+  id: string
+  recipeId: string
+  isReady: boolean
+  remainingMs: number
+}
+
+interface BarnSnapshot {
+  balance: number
+  inventory: Record<string, number>
+  jobs: BarnJobSnapshot[]
+}
+
+interface BarnStartDebugResult {
+  result: 'started' | 'insufficient_items' | 'insufficient_funds'
+  jobId: string | null
+  balance: number
+  jobCount: number
+}
+
+interface BarnClaimDebugResult {
+  result: 'claimed' | 'processing' | 'not_found'
+  recipeId: string | null
+  balance: number
+  jobCount: number
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
   getSnapshot(): SmokeSnapshot
   getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
+  getBarnSnapshot(): BarnSnapshot
+  debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
+  debugClaimBarnJob(jobId: string): BarnClaimDebugResult
   debugSaveGameState(): unknown
   debugPersistLegacySaveWithoutStreak(): void
   getTileScreenPoint(tileX: number, tileY: number): ScreenPoint
@@ -507,6 +538,49 @@ function debugClaimCurrentReturnObjective(game: Phaser.Game): ReturnObjectiveCla
   }
 }
 
+function getBarnSnapshot(game: Phaser.Game): BarnSnapshot {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const snapshot = services.getBarnStateSnapshot()
+
+  return {
+    balance: services.getCurrencyBalance(),
+    inventory: { ...services.getInventorySnapshot() },
+    jobs: snapshot.jobs.map((job) => ({
+      id: job.id,
+      recipeId: job.recipeId,
+      isReady: job.isReady,
+      remainingMs: job.remainingMs,
+    })),
+  }
+}
+
+function debugStartBarnJob(game: Phaser.Game, recipeId: BarnProcessingRecipeId): BarnStartDebugResult {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const result = services.startBarnJob(recipeId, 'smoke:barn_start')
+
+  return {
+    result: result.result,
+    jobId: result.job?.id ?? null,
+    balance: result.balance,
+    jobCount: result.state.jobs.length,
+  }
+}
+
+function debugClaimBarnJob(game: Phaser.Game, jobId: string): BarnClaimDebugResult {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const services = getGameServices(ranchScene)
+  const result = services.claimBarnJob(jobId, 'smoke:barn_claim')
+
+  return {
+    result: result.result,
+    recipeId: result.recipeId,
+    balance: result.balance,
+    jobCount: result.state.jobs.length,
+  }
+}
+
 function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
   const ranchScene = getRanchSceneOrThrow(game)
   const services = getGameServices(ranchScene)
@@ -539,6 +613,10 @@ export function installSmokeHarness(game: Phaser.Game): void {
     getReturnObjectiveSnapshot: (): ReturnObjectiveSnapshot => getReturnObjectiveSnapshot(game),
     debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
       debugClaimCurrentReturnObjective(game),
+    getBarnSnapshot: (): BarnSnapshot => getBarnSnapshot(game),
+    debugStartBarnJob: (recipeId: BarnProcessingRecipeId): BarnStartDebugResult =>
+      debugStartBarnJob(game, recipeId),
+    debugClaimBarnJob: (jobId: string): BarnClaimDebugResult => debugClaimBarnJob(game, jobId),
     debugSaveGameState: (): unknown => debugSaveGameState(game),
     debugPersistLegacySaveWithoutStreak: (): void => {
       debugPersistLegacySaveWithoutStreak(game)

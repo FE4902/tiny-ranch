@@ -1,6 +1,12 @@
 import Phaser from 'phaser'
 
 import { animalProductionConfigs } from '../config/animals'
+import {
+  barnProcessingRecipeConfigs,
+  getBarnProcessingRecipeConfig,
+  type BarnProcessingLineItem,
+  type BarnProcessingRecipeId,
+} from '../config/barn'
 import { cropSeedConfigs, defaultCropSeedId, type CropSeedId } from '../config/crops'
 import {
   clampExpansionTier,
@@ -63,12 +69,15 @@ import {
 import {
   SAVE_SCHEMA_VERSION,
   type SaveAnimalStateV1,
+  type SaveBarnJobStateV1,
+  type SaveBarnStateV1,
   type SaveCropStateV1,
   type SaveFtueStateV1,
   type SaveProgressionStateV1,
   type SaveReturnObjectiveStateV1,
   type SaveReturnObjectiveStreakStateV1,
   type SaveStateV1,
+  createDefaultBarnSaveState,
   createDefaultFtueSaveState,
   createDefaultReturnObjectiveSaveState,
   createDefaultReturnObjectiveStreakSaveState,
@@ -89,6 +98,8 @@ const FTUE_CHANGED_EVENT = 'tiny-ranch:ftue-changed'
 const RETURN_OBJECTIVE_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-state'
 const RETURN_OBJECTIVE_CHANGED_EVENT = 'tiny-ranch:return-objective-changed'
 const RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-streak-state'
+const BARN_STATE_REGISTRY_KEY = 'tiny-ranch:barn-state'
+const BARN_STATE_CHANGED_EVENT = 'tiny-ranch:barn-state-changed'
 const EXPANSION_TIER_REGISTRY_KEY = 'tiny-ranch:expansion-tier'
 const EXPANSION_TIER_CHANGED_EVENT = 'tiny-ranch:expansion-tier-changed'
 const UPGRADE_LEVELS_REGISTRY_KEY = 'tiny-ranch:upgrade-levels'
@@ -115,6 +126,48 @@ export interface CurrencyChange {
   balance: CurrencyBalance
   reason: string
   timestampMs: number
+}
+
+export interface BarnMissingInput {
+  itemId: string
+  requiredQuantity: number
+  availableQuantity: number
+}
+
+export interface BarnJobSnapshot {
+  id: string
+  recipeId: BarnProcessingRecipeId
+  label: string
+  description: string
+  inputs: readonly BarnProcessingLineItem[]
+  outputs: readonly BarnProcessingLineItem[]
+  fee: number
+  startedAtEpochMs: number
+  readyAtEpochMs: number
+  remainingMs: number
+  isReady: boolean
+}
+
+export interface BarnStateSnapshot {
+  jobs: BarnJobSnapshot[]
+}
+
+export interface BarnStartJobResult {
+  result: 'started' | 'insufficient_items' | 'insufficient_funds'
+  recipeId: BarnProcessingRecipeId
+  missingInputs: BarnMissingInput[]
+  job: BarnJobSnapshot | null
+  balance: CurrencyBalance
+  state: BarnStateSnapshot
+}
+
+export interface BarnClaimJobResult {
+  result: 'claimed' | 'processing' | 'not_found'
+  jobId: string
+  recipeId: BarnProcessingRecipeId | null
+  outputs: BarnProcessingLineItem[]
+  balance: CurrencyBalance
+  state: BarnStateSnapshot
 }
 
 export interface FtueStateSnapshot {
@@ -194,6 +247,7 @@ export type InventoryChangeListener = (
   change: InventoryChange,
 ) => void
 export type CurrencyChangeListener = (balance: CurrencyBalance, change: CurrencyChange) => void
+export type BarnStateChangeListener = (state: BarnStateSnapshot) => void
 export type FtueStateChangeListener = (state: FtueStateSnapshot) => void
 export type ReturnObjectiveStateChangeListener = (state: ReturnObjectiveStateSnapshot) => void
 export type ExpansionStateChangeListener = (state: ExpansionStateSnapshot) => void
@@ -263,6 +317,10 @@ export interface GameServices {
   addCurrency: (amount: number, reason?: string) => CurrencyBalance
   getCurrencyBalance: () => CurrencyBalance
   onCurrencyChanged: (listener: CurrencyChangeListener) => () => void
+  getBarnStateSnapshot: () => BarnStateSnapshot
+  startBarnJob: (recipeId: BarnProcessingRecipeId, source?: string) => BarnStartJobResult
+  claimBarnJob: (jobId: string, source?: string) => BarnClaimJobResult
+  onBarnStateChanged: (listener: BarnStateChangeListener) => () => void
   getExpansionStateSnapshot: () => ExpansionStateSnapshot
   purchaseNextExpansionTier: (source?: string) => ExpansionPurchaseResult
   onExpansionStateChanged: (listener: ExpansionStateChangeListener) => () => void
@@ -301,6 +359,10 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isCropSeedId(value: unknown): value is CropSeedId {
   return typeof value === 'string' && Object.hasOwn(cropSeedConfigs, value)
+}
+
+function isBarnProcessingRecipeId(value: unknown): value is BarnProcessingRecipeId {
+  return typeof value === 'string' && Object.hasOwn(barnProcessingRecipeConfigs, value)
 }
 
 function isSaveCropState(value: unknown): value is SaveCropStateV1 {
@@ -352,6 +414,29 @@ function isSaveFtueState(value: unknown): value is SaveFtueStateV1 {
   return hasValidStep && hasValidCompletionTimestamp
 }
 
+function isSaveBarnJobState(value: unknown): value is SaveBarnJobStateV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const job = value as Partial<SaveBarnJobStateV1>
+  return (
+    typeof job.id === 'string' &&
+    job.id.trim().length > 0 &&
+    isBarnProcessingRecipeId(job.recipeId) &&
+    isNonNegativeInteger(job.startedAtEpochMs) &&
+    isNonNegativeInteger(job.readyAtEpochMs) &&
+    job.readyAtEpochMs >= job.startedAtEpochMs
+  )
+}
+
+function cloneBarnLineItem(item: BarnProcessingLineItem): BarnProcessingLineItem {
+  return {
+    itemId: item.itemId,
+    quantity: item.quantity,
+  }
+}
+
 function cloneCropState(crop: SaveCropStateV1): SaveCropStateV1 {
   return {
     seedId: crop.seedId,
@@ -373,6 +458,15 @@ function cloneAnimalState(animal: SaveAnimalStateV1): SaveAnimalStateV1 {
     hasProductReady: animal.hasProductReady,
     cycleStartedAtEpochMs: animal.cycleStartedAtEpochMs,
     nextProductAtEpochMs: animal.nextProductAtEpochMs,
+  }
+}
+
+function cloneBarnJobState(job: SaveBarnJobStateV1): SaveBarnJobStateV1 {
+  return {
+    id: job.id,
+    recipeId: job.recipeId,
+    startedAtEpochMs: job.startedAtEpochMs,
+    readyAtEpochMs: job.readyAtEpochMs,
   }
 }
 
@@ -424,6 +518,36 @@ function normalizeInventorySnapshot(inventory: Record<string, number>): Record<s
   }
 
   return normalized
+}
+
+function normalizeBarnSaveState(state: SaveBarnStateV1): SaveBarnStateV1 {
+  const jobs: SaveBarnJobStateV1[] = []
+  const seenIds = new Set<string>()
+
+  for (const job of state.jobs) {
+    if (!isSaveBarnJobState(job) || seenIds.has(job.id)) {
+      continue
+    }
+
+    seenIds.add(job.id)
+    jobs.push(cloneBarnJobState(job))
+  }
+
+  jobs.sort((left, right) => {
+    if (left.readyAtEpochMs !== right.readyAtEpochMs) {
+      return left.readyAtEpochMs - right.readyAtEpochMs
+    }
+
+    return left.startedAtEpochMs - right.startedAtEpochMs
+  })
+
+  return {
+    jobs,
+  }
+}
+
+function formatBarnLineItems(items: readonly BarnProcessingLineItem[]): string {
+  return items.map((item) => `${item.itemId}:${item.quantity}`).join(',')
 }
 
 function normalizeNullableTimestamp(value: unknown): number | null {
@@ -714,6 +838,10 @@ function buildSaveAnalyticsMetadata(saveState: SaveStateV1): SaveAnalyticsMetada
   }
 }
 
+function createBarnJobId(recipeId: BarnProcessingRecipeId, index: number, timestampMs: number): string {
+  return `barn-job:${recipeId}:${timestampMs}:${index}`
+}
+
 function formatReturnSessionRewards(summary: ReturnSessionSummary): string {
   return summary.rewards.map((reward) => `${reward.itemId}:${reward.quantity}`).join(',')
 }
@@ -742,6 +870,7 @@ export function createGameServices(
       RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY,
       createDefaultReturnObjectiveStreakSaveState(),
     )
+    game.registry.set(BARN_STATE_REGISTRY_KEY, createDefaultBarnSaveState())
     game.registry.set(EXPANSION_TIER_REGISTRY_KEY, getDefaultExpansionTier())
     game.registry.set(UPGRADE_LEVELS_REGISTRY_KEY, createDefaultUpgradeLevels())
     game.registry.set(ACTIVE_SCENE_REGISTRY_KEY, null)
@@ -782,6 +911,119 @@ export function createGameServices(
 
   const getCurrencyBalance = (): CurrencyBalance => {
     return readCurrencyBalance()
+  }
+
+  const readBarnSaveState = (): SaveBarnStateV1 => {
+    const rawState = game.registry.get(BARN_STATE_REGISTRY_KEY)
+    if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) {
+      return createDefaultBarnSaveState()
+    }
+
+    const rawJobs = Array.isArray((rawState as Partial<SaveBarnStateV1>).jobs)
+      ? ((rawState as Partial<SaveBarnStateV1>).jobs as unknown[])
+      : []
+
+    return normalizeBarnSaveState({
+      jobs: rawJobs.filter(isSaveBarnJobState).map((job) => cloneBarnJobState(job)),
+    })
+  }
+
+  const buildBarnJobSnapshot = (
+    job: SaveBarnJobStateV1,
+    nowEpochMs: number = Date.now(),
+  ): BarnJobSnapshot => {
+    const recipe = getBarnProcessingRecipeConfig(job.recipeId)
+    const remainingMs = Math.max(0, job.readyAtEpochMs - nowEpochMs)
+
+    return {
+      id: job.id,
+      recipeId: job.recipeId,
+      label: recipe.label,
+      description: recipe.description,
+      inputs: recipe.inputs.map((item) => cloneBarnLineItem(item)),
+      outputs: recipe.outputs.map((item) => cloneBarnLineItem(item)),
+      fee: recipe.fee,
+      startedAtEpochMs: job.startedAtEpochMs,
+      readyAtEpochMs: job.readyAtEpochMs,
+      remainingMs,
+      isReady: remainingMs === 0,
+    }
+  }
+
+  const buildBarnStateSnapshot = (
+    state: SaveBarnStateV1 = readBarnSaveState(),
+    nowEpochMs: number = Date.now(),
+  ): BarnStateSnapshot => {
+    return {
+      jobs: state.jobs.map((job) => buildBarnJobSnapshot(job, nowEpochMs)),
+    }
+  }
+
+  const getBarnStateSnapshot = (): BarnStateSnapshot => {
+    return buildBarnStateSnapshot()
+  }
+
+  const commitInventoryState = (
+    nextInventory: Record<string, number>,
+    changes: readonly InventoryChange[],
+    options: {
+      persist?: boolean
+    } = {},
+  ): Record<string, number> => {
+    const normalized = normalizeInventorySnapshot(nextInventory)
+    game.registry.set(INVENTORY_REGISTRY_KEY, normalized)
+
+    for (const change of changes) {
+      game.events.emit(INVENTORY_CHANGED_EVENT, change)
+    }
+
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
+
+    return normalized
+  }
+
+  const commitCurrencyBalance = (
+    nextBalance: CurrencyBalance,
+    change: CurrencyChange,
+    options: {
+      persist?: boolean
+    } = {},
+  ): CurrencyBalance => {
+    game.registry.set(CURRENCY_REGISTRY_KEY, nextBalance)
+
+    telemetry.track('currency_changed', {
+      amount: change.amount,
+      balance: nextBalance,
+      reason: change.reason,
+      eventTimestampMs: change.timestampMs,
+    })
+    game.events.emit(CURRENCY_CHANGED_EVENT, change)
+
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
+
+    return nextBalance
+  }
+
+  const setBarnSaveState = (
+    state: SaveBarnStateV1,
+    options: {
+      persist?: boolean
+    } = {},
+  ): BarnStateSnapshot => {
+    const normalized = normalizeBarnSaveState(state)
+    game.registry.set(BARN_STATE_REGISTRY_KEY, normalized)
+    const snapshot = buildBarnStateSnapshot(normalized)
+    game.events.emit(BARN_STATE_CHANGED_EVENT, snapshot)
+
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
+
+    return snapshot
   }
 
   const readExpansionTier = (): number => {
@@ -1066,6 +1308,7 @@ export function createGameServices(
     const ftueState = readFtueState()
     const returnObjectiveState = readReturnObjectiveState()
     const returnObjectiveStreakState = readReturnObjectiveStreakState()
+    const barnState = readBarnSaveState()
     return {
       schemaVersion: SAVE_SCHEMA_VERSION,
       metadata: {
@@ -1082,6 +1325,7 @@ export function createGameServices(
       ftue: ftueState,
       returnObjective: returnObjectiveState,
       returnObjectiveStreak: returnObjectiveStreakState,
+      barn: barnState,
       ranch: {
         crops: ranchSnapshot.crops,
         animals: ranchSnapshot.animals,
@@ -1137,7 +1381,6 @@ export function createGameServices(
     const nextInventory = readInventoryState()
     const nextTotal = (nextInventory[normalized.itemId] ?? 0) + normalized.quantity
     nextInventory[normalized.itemId] = nextTotal
-    game.registry.set(INVENTORY_REGISTRY_KEY, nextInventory)
 
     const change: InventoryChange = {
       itemId: normalized.itemId,
@@ -1146,8 +1389,7 @@ export function createGameServices(
       timestampMs: Date.now(),
     }
 
-    game.events.emit(INVENTORY_CHANGED_EVENT, change)
-    persistCurrentState()
+    commitInventoryState(nextInventory, [change])
     return nextTotal
   }
 
@@ -1167,7 +1409,6 @@ export function createGameServices(
       delete nextInventory[normalized.itemId]
     }
 
-    game.registry.set(INVENTORY_REGISTRY_KEY, nextInventory)
     const change: InventoryChange = {
       itemId: normalized.itemId,
       quantity: -normalized.quantity,
@@ -1175,8 +1416,7 @@ export function createGameServices(
       timestampMs: Date.now(),
     }
 
-    game.events.emit(INVENTORY_CHANGED_EVENT, change)
-    persistCurrentState()
+    commitInventoryState(nextInventory, [change])
     return nextTotal
   }
 
@@ -1193,7 +1433,6 @@ export function createGameServices(
       throw new Error('Currency balance cannot be negative')
     }
 
-    game.registry.set(CURRENCY_REGISTRY_KEY, nextBalance)
     const change: CurrencyChange = {
       amount: normalizedAmount,
       balance: nextBalance,
@@ -1201,19 +1440,251 @@ export function createGameServices(
       timestampMs: Date.now(),
     }
 
-    telemetry.track('currency_changed', {
-      amount: normalizedAmount,
-      balance: nextBalance,
-      reason: normalizedReason,
-      eventTimestampMs: change.timestampMs,
-    })
-    game.events.emit(CURRENCY_CHANGED_EVENT, change)
-    persistCurrentState()
-    return nextBalance
+    return commitCurrencyBalance(nextBalance, change)
   }
 
   const addCurrency = (amount: number, reason: string = 'unspecified'): CurrencyBalance => {
     return applyCurrencyDelta(amount, reason)
+  }
+
+  const startBarnJob = (
+    recipeId: BarnProcessingRecipeId,
+    source: string = 'unspecified',
+  ): BarnStartJobResult => {
+    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const recipe = getBarnProcessingRecipeConfig(recipeId)
+    const now = Date.now()
+    const currentInventory = readInventoryState()
+    const currentBalance = readCurrencyBalance()
+    const currentBarnState = readBarnSaveState()
+    const missingInputs = recipe.inputs
+      .map((item) => {
+        const availableQuantity = currentInventory[item.itemId] ?? 0
+        if (availableQuantity >= item.quantity) {
+          return null
+        }
+
+        return {
+          itemId: item.itemId,
+          requiredQuantity: item.quantity,
+          availableQuantity,
+        }
+      })
+      .filter((entry): entry is BarnMissingInput => entry !== null)
+
+    const startFailure =
+      missingInputs.length > 0
+        ? 'insufficient_items'
+        : currentBalance < recipe.fee
+          ? 'insufficient_funds'
+          : null
+
+    if (startFailure) {
+      const state = buildBarnStateSnapshot(currentBarnState, now)
+      telemetry.track('barn_job_start_attempt', {
+        recipeId,
+        recipeLabel: recipe.label,
+        result: startFailure,
+        inputLineItems: formatBarnLineItems(recipe.inputs),
+        outputLineItems: formatBarnLineItems(recipe.outputs),
+        missingLineItems: formatBarnLineItems(
+          missingInputs.map((item) => ({
+            itemId: item.itemId,
+            quantity: Math.max(0, item.requiredQuantity - item.availableQuantity),
+          })),
+        ),
+        fee: recipe.fee,
+        durationMs: recipe.durationMs,
+        activeJobCount: currentBarnState.jobs.length,
+        balance: currentBalance,
+        source: normalizedSource,
+        eventTimestampMs: now,
+      })
+
+      return {
+        result: startFailure,
+        recipeId,
+        missingInputs,
+        job: null,
+        balance: currentBalance,
+        state,
+      }
+    }
+
+    const nextInventory = readInventoryState()
+    const inventoryChanges: InventoryChange[] = recipe.inputs.map((item) => {
+      const nextTotal = (nextInventory[item.itemId] ?? 0) - item.quantity
+
+      if (nextTotal > 0) {
+        nextInventory[item.itemId] = nextTotal
+      } else {
+        delete nextInventory[item.itemId]
+      }
+
+      return {
+        itemId: item.itemId,
+        quantity: -item.quantity,
+        total: nextTotal,
+        timestampMs: now,
+      }
+    })
+
+    if (inventoryChanges.length > 0) {
+      commitInventoryState(nextInventory, inventoryChanges, { persist: false })
+    }
+
+    let balance = currentBalance
+    if (recipe.fee > 0) {
+      const currencyChange: CurrencyChange = {
+        amount: -recipe.fee,
+        balance: currentBalance - recipe.fee,
+        reason: `barn_job_fee:${recipeId}`,
+        timestampMs: now,
+      }
+      balance = commitCurrencyBalance(currencyChange.balance, currencyChange, { persist: false })
+    }
+
+    const job: SaveBarnJobStateV1 = {
+      id: createBarnJobId(recipeId, currentBarnState.jobs.length, now),
+      recipeId,
+      startedAtEpochMs: now,
+      readyAtEpochMs: now + recipe.durationMs,
+    }
+    const state = setBarnSaveState(
+      {
+        jobs: [...currentBarnState.jobs, job],
+      },
+      { persist: false },
+    )
+
+    persistCurrentState()
+
+    telemetry.track('barn_job_start_attempt', {
+      recipeId,
+      recipeLabel: recipe.label,
+      result: 'started',
+      inputLineItems: formatBarnLineItems(recipe.inputs),
+      outputLineItems: formatBarnLineItems(recipe.outputs),
+      missingLineItems: '',
+      fee: recipe.fee,
+      durationMs: recipe.durationMs,
+      activeJobCount: state.jobs.length,
+      balance,
+      source: normalizedSource,
+      eventTimestampMs: now,
+    })
+    telemetry.track('barn_job_started', {
+      recipeId,
+      recipeLabel: recipe.label,
+      jobId: job.id,
+      inputLineItems: formatBarnLineItems(recipe.inputs),
+      outputLineItems: formatBarnLineItems(recipe.outputs),
+      fee: recipe.fee,
+      durationMs: recipe.durationMs,
+      activeJobCount: state.jobs.length,
+      balance,
+      source: normalizedSource,
+      eventTimestampMs: now,
+    })
+
+    return {
+      result: 'started',
+      recipeId,
+      missingInputs: [],
+      job: buildBarnJobSnapshot(job, now),
+      balance,
+      state,
+    }
+  }
+
+  const claimBarnJob = (jobId: string, source: string = 'unspecified'): BarnClaimJobResult => {
+    const normalizedJobId = jobId.trim()
+    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const now = Date.now()
+    const currentBarnState = readBarnSaveState()
+
+    if (normalizedJobId.length === 0) {
+      return {
+        result: 'not_found',
+        jobId: normalizedJobId,
+        recipeId: null,
+        outputs: [],
+        balance: getCurrencyBalance(),
+        state: buildBarnStateSnapshot(currentBarnState, now),
+      }
+    }
+
+    const job = currentBarnState.jobs.find((entry) => entry.id === normalizedJobId)
+    if (!job) {
+      return {
+        result: 'not_found',
+        jobId: normalizedJobId,
+        recipeId: null,
+        outputs: [],
+        balance: getCurrencyBalance(),
+        state: buildBarnStateSnapshot(currentBarnState, now),
+      }
+    }
+
+    const recipe = getBarnProcessingRecipeConfig(job.recipeId)
+    if (job.readyAtEpochMs > now) {
+      return {
+        result: 'processing',
+        jobId: normalizedJobId,
+        recipeId: job.recipeId,
+        outputs: recipe.outputs.map((item) => cloneBarnLineItem(item)),
+        balance: getCurrencyBalance(),
+        state: buildBarnStateSnapshot(currentBarnState, now),
+      }
+    }
+
+    const nextInventory = readInventoryState()
+    const inventoryChanges: InventoryChange[] = recipe.outputs.map((item) => {
+      const nextTotal = (nextInventory[item.itemId] ?? 0) + item.quantity
+      nextInventory[item.itemId] = nextTotal
+
+      return {
+        itemId: item.itemId,
+        quantity: item.quantity,
+        total: nextTotal,
+        timestampMs: now,
+      }
+    })
+
+    if (inventoryChanges.length > 0) {
+      commitInventoryState(nextInventory, inventoryChanges, { persist: false })
+    }
+
+    const state = setBarnSaveState(
+      {
+        jobs: currentBarnState.jobs.filter((entry) => entry.id !== normalizedJobId),
+      },
+      { persist: false },
+    )
+
+    persistCurrentState()
+
+    telemetry.track('barn_job_completed', {
+      recipeId: job.recipeId,
+      recipeLabel: recipe.label,
+      jobId: job.id,
+      outputLineItems: formatBarnLineItems(recipe.outputs),
+      activeJobCount: state.jobs.length,
+      balance: getCurrencyBalance(),
+      source: normalizedSource,
+      startedAtEpochMs: job.startedAtEpochMs,
+      readyAtEpochMs: job.readyAtEpochMs,
+      eventTimestampMs: now,
+    })
+
+    return {
+      result: 'claimed',
+      jobId: normalizedJobId,
+      recipeId: job.recipeId,
+      outputs: recipe.outputs.map((item) => cloneBarnLineItem(item)),
+      balance: getCurrencyBalance(),
+      state,
+    }
   }
 
   const purchaseNextExpansionTier = (
@@ -1693,6 +2164,7 @@ export function createGameServices(
         RETURN_OBJECTIVE_STREAK_STATE_REGISTRY_KEY,
         normalizeReturnObjectiveStreakState(saveState.returnObjectiveStreak),
       )
+      game.registry.set(BARN_STATE_REGISTRY_KEY, normalizeBarnSaveState(saveState.barn))
       game.registry.set(
         EXPANSION_TIER_REGISTRY_KEY,
         clampExpansionTier(saveState.progression.expansionTier),
@@ -1904,6 +2376,17 @@ export function createGameServices(
     }
   }
 
+  const onBarnStateChanged = (listener: BarnStateChangeListener): (() => void) => {
+    const handler = (snapshot: BarnStateSnapshot): void => {
+      listener(snapshot)
+    }
+
+    game.events.on(BARN_STATE_CHANGED_EVENT, handler)
+    return () => {
+      game.events.off(BARN_STATE_CHANGED_EVENT, handler)
+    }
+  }
+
   const onExpansionStateChanged = (listener: ExpansionStateChangeListener): (() => void) => {
     const handler = (snapshot: ExpansionStateSnapshot): void => {
       listener(snapshot)
@@ -2008,6 +2491,10 @@ export function createGameServices(
     addCurrency,
     getCurrencyBalance,
     onCurrencyChanged,
+    getBarnStateSnapshot,
+    startBarnJob,
+    claimBarnJob,
+    onBarnStateChanged,
     getExpansionStateSnapshot,
     purchaseNextExpansionTier,
     onExpansionStateChanged,

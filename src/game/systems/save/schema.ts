@@ -1,4 +1,8 @@
 import { animalProductionConfigs, type AnimalProductionId } from '../../config/animals'
+import {
+  barnProcessingRecipeConfigs,
+  type BarnProcessingRecipeId,
+} from '../../config/barn'
 import { cropSeedConfigs, type CropSeedId } from '../../config/crops'
 import { getFirstFtueStepId, isFtueStepId, type FtueStepId } from '../../config/ftue'
 import { isReturnObjectiveId, type ReturnObjectiveId } from '../../config/returnObjectives'
@@ -71,6 +75,17 @@ export interface SaveReturnObjectiveStreakStateV1 {
   lastClaimedAtEpochMs: number | null
 }
 
+export interface SaveBarnJobStateV1 {
+  id: string
+  recipeId: BarnProcessingRecipeId
+  startedAtEpochMs: number
+  readyAtEpochMs: number
+}
+
+export interface SaveBarnStateV1 {
+  jobs: SaveBarnJobStateV1[]
+}
+
 export interface SaveStateV1 {
   schemaVersion: typeof SAVE_SCHEMA_VERSION
   metadata: SaveMetadataV1
@@ -80,6 +95,7 @@ export interface SaveStateV1 {
   ftue: SaveFtueStateV1
   returnObjective: SaveReturnObjectiveStateV1
   returnObjectiveStreak: SaveReturnObjectiveStreakStateV1
+  barn: SaveBarnStateV1
   ranch: {
     crops: SaveCropStateV1[]
     animals: SaveAnimalStateV1[]
@@ -133,6 +149,10 @@ function isAnimalProductionId(value: unknown): value is AnimalProductionId {
 
 function isPlayableSceneKey(value: unknown): value is PlayableSceneKey {
   return typeof value === 'string' && PLAYABLE_SCENES.includes(value as PlayableSceneKey)
+}
+
+function isBarnProcessingRecipeId(value: unknown): value is BarnProcessingRecipeId {
+  return typeof value === 'string' && Object.hasOwn(barnProcessingRecipeConfigs, value)
 }
 
 function decodeInventory(value: unknown): Record<string, number> | null {
@@ -326,6 +346,12 @@ export function createDefaultReturnObjectiveStreakSaveState(): SaveReturnObjecti
   }
 }
 
+export function createDefaultBarnSaveState(): SaveBarnStateV1 {
+  return {
+    jobs: [],
+  }
+}
+
 function decodeFtue(value: unknown): SaveFtueStateV1 | null {
   if (value === undefined) {
     return createDefaultFtueSaveState()
@@ -435,6 +461,62 @@ function decodeReturnObjectiveStreak(value: unknown): SaveReturnObjectiveStreakS
   }
 }
 
+function decodeBarnJobState(value: unknown): SaveBarnJobStateV1 | null {
+  if (!isObject(value)) {
+    return null
+  }
+
+  if (typeof value.id !== 'string' || value.id.trim().length === 0) {
+    return null
+  }
+
+  if (!isBarnProcessingRecipeId(value.recipeId)) {
+    return null
+  }
+
+  if (!isNonNegativeInteger(value.startedAtEpochMs) || !isNonNegativeInteger(value.readyAtEpochMs)) {
+    return null
+  }
+
+  if (value.readyAtEpochMs < value.startedAtEpochMs) {
+    return null
+  }
+
+  return {
+    id: value.id,
+    recipeId: value.recipeId,
+    startedAtEpochMs: value.startedAtEpochMs,
+    readyAtEpochMs: value.readyAtEpochMs,
+  }
+}
+
+function decodeBarnState(value: unknown): SaveBarnStateV1 | null {
+  if (value === undefined) {
+    return createDefaultBarnSaveState()
+  }
+
+  if (!isObject(value) || !Array.isArray(value.jobs)) {
+    return null
+  }
+
+  const jobs: SaveBarnJobStateV1[] = []
+  const seenIds = new Set<string>()
+
+  for (const job of value.jobs) {
+    const decoded = decodeBarnJobState(job)
+    if (!decoded || seenIds.has(decoded.id)) {
+      return null
+    }
+
+    seenIds.add(decoded.id)
+    jobs.push(decoded)
+  }
+
+  return {
+    jobs,
+  }
+}
+
 function decodeRanchState(
   value: unknown,
 ): {
@@ -519,6 +601,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
   const ftue = decodeFtue(payload.ftue)
   const returnObjective = decodeReturnObjective(payload.returnObjective)
   const returnObjectiveStreak = decodeReturnObjectiveStreak(payload.returnObjectiveStreak)
+  const barn = decodeBarnState(payload.barn)
   const ranch = decodeRanchState(payload.ranch)
 
   if (!isNonNegativeInteger(payload.currency)) {
@@ -538,6 +621,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
     !ftue ||
     !returnObjective ||
     !returnObjectiveStreak ||
+    !barn ||
     !ranch
   ) {
     return {
@@ -560,6 +644,7 @@ export function decodeSaveState(payload: unknown): SaveStateDecodeResult {
       ftue,
       returnObjective,
       returnObjectiveStreak,
+      barn,
       ranch,
     },
   }
