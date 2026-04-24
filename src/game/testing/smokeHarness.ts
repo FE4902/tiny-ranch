@@ -8,6 +8,7 @@ import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
 import type { BarnScene, BarnSceneDebugUiSnapshot } from '../scenes/BarnScene'
 import type { RanchScene } from '../scenes/RanchScene'
+import type { UiScene, UiSceneDebugReturnSessionSummaryModalSnapshot } from '../scenes/UiScene'
 import { getGameServices } from '../systems/runtime'
 
 const SMOKE_QUERY_PARAM = 'smokeTest'
@@ -145,6 +146,13 @@ interface BarnUiSnapshot {
   claimButtonCenter: ScreenPoint | null
 }
 
+interface ReturnSessionSummaryModalSnapshot {
+  isVisible: boolean
+  titleText: string
+  subtitleText: string
+  rewardsText: string
+}
+
 interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
@@ -153,6 +161,7 @@ interface TinyRanchSmokeHarness {
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
   getBarnSnapshot(): BarnSnapshot
   getBarnUiSnapshot(): BarnUiSnapshot
+  getReturnSessionSummaryModalSnapshot(): ReturnSessionSummaryModalSnapshot
   debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
   debugClaimBarnJob(jobId: string): BarnClaimDebugResult
   debugNavigate(sceneKey: PlayableSceneKey): void
@@ -195,6 +204,14 @@ function resolveBarnScene(game: Phaser.Game): BarnScene | null {
   return game.scene.getScene(SCENE_KEYS.barn) as BarnScene
 }
 
+function resolveUiScene(game: Phaser.Game): UiScene | null {
+  if (!game.scene.isActive(SCENE_KEYS.ui)) {
+    return null
+  }
+
+  return game.scene.getScene(SCENE_KEYS.ui) as UiScene
+}
+
 function resolveServiceScene(game: Phaser.Game): Phaser.Scene | null {
   if (game.scene.isActive(SCENE_KEYS.ui)) {
     return game.scene.getScene(SCENE_KEYS.ui)
@@ -227,6 +244,15 @@ function getBarnSceneOrThrow(game: Phaser.Game): BarnScene {
   }
 
   throw new Error('Barn scene is not active yet.')
+}
+
+function getUiSceneOrThrow(game: Phaser.Game): UiScene {
+  const scene = resolveUiScene(game)
+  if (scene) {
+    return scene
+  }
+
+  throw new Error('UI scene is not active yet.')
 }
 
 function getServiceSceneOrThrow(game: Phaser.Game): Phaser.Scene {
@@ -626,6 +652,19 @@ function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
   }
 }
 
+function getReturnSessionSummaryModalSnapshot(game: Phaser.Game): ReturnSessionSummaryModalSnapshot {
+  const scene = getUiSceneOrThrow(game)
+  const snapshot: UiSceneDebugReturnSessionSummaryModalSnapshot =
+    scene.getDebugReturnSessionSummaryModalSnapshot()
+
+  return {
+    isVisible: snapshot.isVisible,
+    titleText: snapshot.titleText,
+    subtitleText: snapshot.subtitleText,
+    rewardsText: snapshot.rewardsText,
+  }
+}
+
 function debugStartBarnJob(game: Phaser.Game, recipeId: BarnProcessingRecipeId): BarnStartDebugResult {
   const services = getGameServices(getServiceSceneOrThrow(game))
   const result = services.startBarnJob(recipeId, 'smoke:barn_start')
@@ -687,6 +726,8 @@ export function installSmokeHarness(game: Phaser.Game): void {
       debugClaimCurrentReturnObjective(game),
     getBarnSnapshot: (): BarnSnapshot => getBarnSnapshot(game),
     getBarnUiSnapshot: (): BarnUiSnapshot => getBarnUiSnapshot(game),
+    getReturnSessionSummaryModalSnapshot: (): ReturnSessionSummaryModalSnapshot =>
+      getReturnSessionSummaryModalSnapshot(game),
     debugStartBarnJob: (recipeId: BarnProcessingRecipeId): BarnStartDebugResult =>
       debugStartBarnJob(game, recipeId),
     debugClaimBarnJob: (jobId: string): BarnClaimDebugResult => debugClaimBarnJob(game, jobId),

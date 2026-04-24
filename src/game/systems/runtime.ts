@@ -2361,17 +2361,19 @@ export function createGameServices(
     const summary = pendingReturnSessionSummary
     pendingReturnSessionSummary = null
 
-    telemetry.track('offline_progress_summary_claimed', {
-      source,
-      offlineElapsedMs: summary.offlineElapsedMs,
-      effectiveElapsedMs: summary.effectiveElapsedMs,
-      totalItemsGranted: summary.totalItemsGranted,
-      totalEstimatedSellValue: summary.totalEstimatedSellValue,
-      cropsHarvested: summary.cropsHarvested,
-      animalProductsCollected: summary.animalProductsCollected,
-      rewardBreakdown: formatReturnSessionRewards(summary),
-      eventTimestampMs: Date.now(),
-    })
+    if (summary.totalItemsGranted > 0) {
+      telemetry.track('offline_progress_summary_claimed', {
+        source,
+        offlineElapsedMs: summary.offlineElapsedMs,
+        effectiveElapsedMs: summary.effectiveElapsedMs,
+        totalItemsGranted: summary.totalItemsGranted,
+        totalEstimatedSellValue: summary.totalEstimatedSellValue,
+        cropsHarvested: summary.cropsHarvested,
+        animalProductsCollected: summary.animalProductsCollected,
+        rewardBreakdown: formatReturnSessionRewards(summary),
+        eventTimestampMs: Date.now(),
+      })
+    }
 
     return summary
   }
@@ -2432,20 +2434,25 @@ export function createGameServices(
         effectiveElapsedMs: pendingReturnSessionSummary?.effectiveElapsedMs ?? null,
         totalItemsGranted: pendingReturnSessionSummary?.totalItemsGranted ?? 0,
         totalEstimatedSellValue: pendingReturnSessionSummary?.totalEstimatedSellValue ?? 0,
-        rewardsGranted: pendingReturnSessionSummary !== null,
+        rewardsGranted: (pendingReturnSessionSummary?.totalItemsGranted ?? 0) > 0,
       })
 
-      if (pendingReturnSessionSummary) {
+      const grantedOfflineRewardsSummary =
+        pendingReturnSessionSummary && pendingReturnSessionSummary.totalItemsGranted > 0
+          ? pendingReturnSessionSummary
+          : null
+
+      if (grantedOfflineRewardsSummary) {
         telemetry.track('offline_progress_granted', {
-          offlineElapsedMs: pendingReturnSessionSummary.offlineElapsedMs,
-          effectiveElapsedMs: pendingReturnSessionSummary.effectiveElapsedMs,
-          wasOfflineTimeCapped: pendingReturnSessionSummary.wasOfflineTimeCapped,
-          wasRewardCapReached: pendingReturnSessionSummary.wasRewardCapReached,
-          totalItemsGranted: pendingReturnSessionSummary.totalItemsGranted,
-          totalEstimatedSellValue: pendingReturnSessionSummary.totalEstimatedSellValue,
-          cropsHarvested: pendingReturnSessionSummary.cropsHarvested,
-          animalProductsCollected: pendingReturnSessionSummary.animalProductsCollected,
-          rewardBreakdown: formatReturnSessionRewards(pendingReturnSessionSummary),
+          offlineElapsedMs: grantedOfflineRewardsSummary.offlineElapsedMs,
+          effectiveElapsedMs: grantedOfflineRewardsSummary.effectiveElapsedMs,
+          wasOfflineTimeCapped: grantedOfflineRewardsSummary.wasOfflineTimeCapped,
+          wasRewardCapReached: grantedOfflineRewardsSummary.wasRewardCapReached,
+          totalItemsGranted: grantedOfflineRewardsSummary.totalItemsGranted,
+          totalEstimatedSellValue: grantedOfflineRewardsSummary.totalEstimatedSellValue,
+          cropsHarvested: grantedOfflineRewardsSummary.cropsHarvested,
+          animalProductsCollected: grantedOfflineRewardsSummary.animalProductsCollected,
+          rewardBreakdown: formatReturnSessionRewards(grantedOfflineRewardsSummary),
           eventTimestampMs: nowEpochMs,
         })
       }

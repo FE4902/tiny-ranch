@@ -1,14 +1,26 @@
+import { getBarnProcessingRecipeConfig, type BarnProcessingRecipeId } from '../config/barn'
 import { getAnimalProductionConfig } from '../config/animals'
 import { offlineProgressConfig, type OfflineProgressConfig } from '../config/offlineProgress'
 import { getCropSeedConfig } from '../config/crops'
 import { getItemSellPrice } from '../config/economy'
 import { resolveUpgradeEffects, type UpgradeEffectSnapshot } from '../config/upgrades'
-import type { SaveAnimalStateV1, SaveCropStateV1, SaveStateV1 } from './save/schema'
+import type {
+  SaveAnimalStateV1,
+  SaveBarnJobStateV1,
+  SaveCropStateV1,
+  SaveStateV1,
+} from './save/schema'
 
 export interface ReturnSessionRewardLineItem {
   itemId: string
   quantity: number
   estimatedSellValue: number
+}
+
+export interface ReturnSessionBarnReadyLineItem {
+  recipeId: BarnProcessingRecipeId
+  label: string
+  quantity: number
 }
 
 export interface ReturnSessionSummary {
@@ -20,7 +32,9 @@ export interface ReturnSessionSummary {
   totalEstimatedSellValue: number
   cropsHarvested: number
   animalProductsCollected: number
+  barnJobsReady: number
   rewards: ReturnSessionRewardLineItem[]
+  barnReadyRecipes: ReturnSessionBarnReadyLineItem[]
   generatedAtEpochMs: number
 }
 
@@ -111,7 +125,9 @@ export function applyOfflineProgressCatchUp(
   const nextInventory: Record<string, number> = { ...inputSaveState.inventory }
   const nextCrops: SaveCropStateV1[] = []
   const nextAnimals: SaveAnimalStateV1[] = []
+  const nextBarnJobs: SaveBarnJobStateV1[] = []
   const rewardsByItem = new Map<string, number>()
+  const barnReadyRecipes = new Map<BarnProcessingRecipeId, ReturnSessionBarnReadyLineItem>()
   const upgradeEffects = resolveUpgradeEffects(inputSaveState.progression.upgrades)
 
   let remainingRewardSlots = config.maxTotalRewardItems
@@ -119,6 +135,7 @@ export function applyOfflineProgressCatchUp(
   let remainingAnimalRewardSlots = config.maxAnimalProducts
   let cropsHarvested = 0
   let animalProductsCollected = 0
+  let barnJobsReady = 0
 
   const canGrantReward = (isCropReward: boolean): boolean => {
     if (remainingRewardSlots <= 0) {
@@ -204,6 +221,33 @@ export function applyOfflineProgressCatchUp(
     })
   }
 
+  for (const job of inputSaveState.barn.jobs) {
+    if (job.processedAtEpochMs !== null || job.readyAtEpochMs > cutoffEpochMs) {
+      nextBarnJobs.push({
+        ...job,
+      })
+      continue
+    }
+
+    barnJobsReady += 1
+
+    const existingReadyRecipe = barnReadyRecipes.get(job.recipeId)
+    if (existingReadyRecipe) {
+      existingReadyRecipe.quantity += 1
+    } else {
+      barnReadyRecipes.set(job.recipeId, {
+        recipeId: job.recipeId,
+        label: getBarnProcessingRecipeConfig(job.recipeId).label,
+        quantity: 1,
+      })
+    }
+
+    nextBarnJobs.push({
+      ...job,
+      processedAtEpochMs: job.readyAtEpochMs,
+    })
+  }
+
   const rewards: ReturnSessionRewardLineItem[] = [...rewardsByItem.entries()]
     .sort((left, right) => left[0].localeCompare(right[0]))
     .map(([itemId, quantity]) => ({
@@ -211,6 +255,16 @@ export function applyOfflineProgressCatchUp(
       quantity,
       estimatedSellValue: estimateRewardSellValue(itemId, quantity, upgradeEffects),
     }))
+  const readyBarnRecipes: ReturnSessionBarnReadyLineItem[] = [...barnReadyRecipes.values()].sort(
+    (left, right) => {
+      const labelComparison = left.label.localeCompare(right.label)
+      if (labelComparison !== 0) {
+        return labelComparison
+      }
+
+      return left.recipeId.localeCompare(right.recipeId)
+    },
+  )
 
   const totalItemsGranted = rewards.reduce((total, reward) => total + reward.quantity, 0)
   const totalEstimatedSellValue = rewards.reduce(
@@ -221,13 +275,16 @@ export function applyOfflineProgressCatchUp(
   const saveState: SaveStateV1 = {
     ...inputSaveState,
     inventory: nextInventory,
+    barn: {
+      jobs: nextBarnJobs,
+    },
     ranch: {
       crops: nextCrops,
       animals: nextAnimals,
     },
   }
 
-  if (totalItemsGranted <= 0) {
+  if (totalItemsGranted <= 0 && barnJobsReady <= 0) {
     return {
       saveState,
       summary: null,
@@ -248,7 +305,9 @@ export function applyOfflineProgressCatchUp(
       totalEstimatedSellValue,
       cropsHarvested,
       animalProductsCollected,
+      barnJobsReady,
       rewards,
+      barnReadyRecipes: readyBarnRecipes,
       generatedAtEpochMs: safeNowEpochMs,
     },
   }

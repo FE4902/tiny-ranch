@@ -51,6 +51,13 @@ type ReturnObjectiveClaimDebugResult = {
   assignmentCycleAfterClaim: number
 }
 
+type ReturnSessionSummaryModalSnapshot = {
+  isVisible: boolean
+  titleText: string
+  subtitleText: string
+  rewardsText: string
+}
+
 async function waitForSmokeHarness(page: Page): Promise<void> {
   await page.waitForFunction(
     (harnessKey: string) => {
@@ -189,6 +196,24 @@ async function getReturnObjectiveSnapshot(page: Page): Promise<ReturnObjectiveSn
   }, SMOKE_HARNESS_KEY)
 }
 
+async function getReturnSessionSummaryModalSnapshot(
+  page: Page,
+): Promise<ReturnSessionSummaryModalSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getReturnSessionSummaryModalSnapshot: () => ReturnSessionSummaryModalSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getReturnSessionSummaryModalSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
 async function claimCurrentReturnObjective(page: Page): Promise<ReturnObjectiveClaimDebugResult> {
   return page.evaluate((harnessKey: string) => {
     const key = harnessKey as keyof Window
@@ -228,6 +253,48 @@ async function makeFirstBarnJobReady(page: Page): Promise<void> {
     job.readyAtEpochMs = Date.now() - 1
     window.localStorage.setItem(storageKey, JSON.stringify(payload))
   }, SAVE_STORAGE_KEY)
+}
+
+async function backdateFirstBarnJobSave(page: Page, elapsedMs: number): Promise<void> {
+  await page.evaluate(
+    ({ storageKey, elapsedMs: requestedElapsedMs }) => {
+      const elapsedMs = Math.max(0, Math.floor(requestedElapsedMs))
+      const raw = window.localStorage.getItem(storageKey)
+      if (!raw) {
+        throw new Error('Expected persisted Barn save payload.')
+      }
+
+      const payload = JSON.parse(raw) as {
+        metadata?: {
+          savedAtEpochMs?: number
+        }
+        barn?: {
+          jobs?: Array<{
+            startedAtEpochMs: number
+            readyAtEpochMs: number
+            processedAtEpochMs: number | null
+          }>
+        }
+      }
+
+      if (!payload.metadata || typeof payload.metadata.savedAtEpochMs !== 'number') {
+        throw new Error('Expected persisted save metadata.')
+      }
+
+      const job = payload.barn?.jobs?.[0]
+      if (!job) {
+        throw new Error('Expected a persisted Barn job in localStorage.')
+      }
+
+      payload.metadata.savedAtEpochMs = Math.max(0, payload.metadata.savedAtEpochMs - elapsedMs)
+      job.startedAtEpochMs = Math.max(0, job.startedAtEpochMs - elapsedMs)
+      job.readyAtEpochMs = Math.max(job.startedAtEpochMs, job.readyAtEpochMs - elapsedMs)
+      job.processedAtEpochMs = null
+
+      window.localStorage.setItem(storageKey, JSON.stringify(payload))
+    },
+    { storageKey: SAVE_STORAGE_KEY, elapsedMs },
+  )
 }
 
 async function readRawSavePayload(page: Page): Promise<Record<string, unknown> | null> {
@@ -319,6 +386,74 @@ test('barn jobs survive reload, become claimable, and persist their outputs', as
   const persistedSnapshot = await getBarnSnapshot(page)
   expect(persistedSnapshot.jobs).toHaveLength(0)
   expect(persistedSnapshot.inventory.cheese).toBe(1)
+})
+
+test('barn jobs become ready through offline hydration, surface in the return summary once, and stay claim-only', async ({
+  page,
+}) => {
+  await launchSmokeSession(page)
+
+  await debugSeedInventory(page, 'milk', 2)
+
+  const startResult = await debugStartBarnJob(page, 'cheese_press')
+  expect(startResult.result).toBe('started')
+  expect(startResult.jobId).not.toBeNull()
+
+  await backdateFirstBarnJobSave(page, 60_000)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  await expect
+    .poll(async () => (await getReturnSessionSummaryModalSnapshot(page)).isVisible, {
+      timeout: 5_000,
+      message: 'Expected the return-session summary modal to surface the offline-ready Barn job.',
+    })
+    .toBe(true)
+
+  const summaryModal = await getReturnSessionSummaryModalSnapshot(page)
+  expect(summaryModal.titleText).toBe('Welcome Back')
+  expect(summaryModal.subtitleText).toContain('Barn finished 1 job while you were away.')
+  expect(summaryModal.subtitleText).not.toContain('Auto-collected')
+  expect(summaryModal.rewardsText).toContain('Barn: Cheese Press')
+
+  const hydratedSnapshot = await getBarnSnapshot(page)
+  expect(hydratedSnapshot.jobs).toHaveLength(1)
+  expect(hydratedSnapshot.jobs[0]?.isReady).toBe(true)
+  expect(hydratedSnapshot.inventory.cheese ?? 0).toBe(0)
+
+  const rawHydratedSave = await readRawSavePayload(page)
+  const hydratedJob = (
+    rawHydratedSave?.barn as
+      | {
+          jobs?: Array<{
+            readyAtEpochMs: number
+            processedAtEpochMs: number | null
+          }>
+        }
+      | undefined
+  )?.jobs?.[0]
+  expect(hydratedJob).toBeDefined()
+  expect(hydratedJob?.processedAtEpochMs).toBe(hydratedJob?.readyAtEpochMs)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const repeatSummaryModal = await getReturnSessionSummaryModalSnapshot(page)
+  expect(repeatSummaryModal.isVisible).toBe(false)
+
+  const preClaimSnapshot = await getBarnSnapshot(page)
+  expect(preClaimSnapshot.jobs).toHaveLength(1)
+  expect(preClaimSnapshot.jobs[0]?.isReady).toBe(true)
+  expect(preClaimSnapshot.inventory.cheese ?? 0).toBe(0)
+
+  const claimResult = await debugClaimBarnJob(page, startResult.jobId ?? '')
+  expect(claimResult.result).toBe('claimed')
+  expect(claimResult.recipeId).toBe('cheese_press')
+
+  const claimedSnapshot = await getBarnSnapshot(page)
+  expect(claimedSnapshot.jobs).toHaveLength(0)
+  expect(claimedSnapshot.inventory.cheese).toBe(1)
 })
 
 test('barn claim progress completes the Barn return objective without bypassing gameplay hooks', async ({ page }) => {

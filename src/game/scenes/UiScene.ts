@@ -33,6 +33,13 @@ interface ReturnSessionSummaryModal {
   continueButton: TextButton
 }
 
+export interface UiSceneDebugReturnSessionSummaryModalSnapshot {
+  isVisible: boolean
+  titleText: string
+  subtitleText: string
+  rewardsText: string
+}
+
 function isDebugQueryFlagEnabled(queryParam: string): boolean {
   if (import.meta.env.DEV) {
     return true
@@ -105,11 +112,24 @@ export class UiScene extends Phaser.Scene {
     const durationLabel = this.formatDurationLabel(summary.effectiveElapsedMs)
     const capsApplied = summary.wasOfflineTimeCapped || summary.wasRewardCapReached
     const capLine = capsApplied ? '\nCaps applied to keep catch-up deterministic.' : ''
+    const autoCollectedLine =
+      summary.totalItemsGranted > 0
+        ? `Auto-collected ${summary.totalItemsGranted} item${summary.totalItemsGranted === 1 ? '' : 's'}.`
+        : ''
+    const estimatedValueLine =
+      summary.totalItemsGranted > 0
+        ? `Estimated sell value: ${summary.totalEstimatedSellValue} coins.`
+        : ''
+    const barnReadyLine =
+      summary.barnJobsReady > 0
+        ? `Barn finished ${summary.barnJobsReady} job${summary.barnJobsReady === 1 ? '' : 's'} while you were away. Claim ${summary.barnJobsReady === 1 ? 'it' : 'them'} in the Barn.`
+        : ''
 
     return [
       `Away for ${durationLabel}.`,
-      `Auto-collected ${summary.totalItemsGranted} item${summary.totalItemsGranted === 1 ? '' : 's'}.`,
-      `Estimated sell value: ${summary.totalEstimatedSellValue} coins.`,
+      autoCollectedLine,
+      estimatedValueLine,
+      barnReadyLine,
       capLine,
     ]
       .filter((line) => line.length > 0)
@@ -117,17 +137,48 @@ export class UiScene extends Phaser.Scene {
   }
 
   private buildReturnSummaryRewards(summary: ReturnSessionSummary): string {
+    const lines: string[] = []
     const visibleRewards = summary.rewards.slice(0, 6)
-    const lines = visibleRewards.map((reward) => {
+    lines.push(...visibleRewards.map((reward) => {
       const itemLabel = this.formatRewardItemLabel(reward.itemId)
       return `+${reward.quantity} ${itemLabel}`
-    })
+    }))
 
     if (summary.rewards.length > visibleRewards.length) {
       lines.push(`+${summary.rewards.length - visibleRewards.length} more reward types`)
     }
 
+    const visibleBarnReadyRecipes = summary.barnReadyRecipes.slice(0, 4)
+    lines.push(
+      ...visibleBarnReadyRecipes.map((recipe) =>
+        recipe.quantity > 1 ? `Barn: ${recipe.label} x${recipe.quantity}` : `Barn: ${recipe.label}`,
+      ),
+    )
+
+    if (summary.barnReadyRecipes.length > visibleBarnReadyRecipes.length) {
+      lines.push(`Barn: +${summary.barnReadyRecipes.length - visibleBarnReadyRecipes.length} more recipe types ready`)
+    }
+
     return lines.join('\n')
+  }
+
+  getDebugReturnSessionSummaryModalSnapshot(): UiSceneDebugReturnSessionSummaryModalSnapshot {
+    const modal = this.returnSessionSummaryModal
+    if (!modal) {
+      return {
+        isVisible: false,
+        titleText: '',
+        subtitleText: '',
+        rewardsText: '',
+      }
+    }
+
+    return {
+      isVisible: true,
+      titleText: modal.title.text,
+      subtitleText: modal.subtitle.text,
+      rewardsText: modal.rewards.text,
+    }
   }
 
   private layoutReturnSessionSummaryModal(): void {
