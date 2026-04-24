@@ -67,6 +67,7 @@ import {
   type SaveStorageReadResult,
 } from './save/localStorageAdapter'
 import {
+  DEFAULT_BARN_JOB_SOURCE,
   SAVE_SCHEMA_VERSION,
   type SaveAnimalStateV1,
   type SaveBarnJobStateV1,
@@ -144,6 +145,8 @@ export interface BarnJobSnapshot {
   fee: number
   startedAtEpochMs: number
   readyAtEpochMs: number
+  processedAtEpochMs: number | null
+  source: string
   remainingMs: number
   isReady: boolean
 }
@@ -430,6 +433,26 @@ function isSaveBarnJobState(value: unknown): value is SaveBarnJobStateV1 {
   )
 }
 
+function normalizeBarnJobSource(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_BARN_JOB_SOURCE
+  }
+
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : DEFAULT_BARN_JOB_SOURCE
+}
+
+function normalizeBarnProcessedAtEpochMs(
+  value: unknown,
+  readyAtEpochMs: number,
+): number | null {
+  if (!isNonNegativeInteger(value) || value < readyAtEpochMs) {
+    return null
+  }
+
+  return value
+}
+
 function cloneBarnLineItem(item: BarnProcessingLineItem): BarnProcessingLineItem {
   return {
     itemId: item.itemId,
@@ -467,6 +490,11 @@ function cloneBarnJobState(job: SaveBarnJobStateV1): SaveBarnJobStateV1 {
     recipeId: job.recipeId,
     startedAtEpochMs: job.startedAtEpochMs,
     readyAtEpochMs: job.readyAtEpochMs,
+    processedAtEpochMs: normalizeBarnProcessedAtEpochMs(
+      job.processedAtEpochMs,
+      job.readyAtEpochMs,
+    ),
+    source: normalizeBarnJobSource(job.source),
   }
 }
 
@@ -945,6 +973,8 @@ export function createGameServices(
       fee: recipe.fee,
       startedAtEpochMs: job.startedAtEpochMs,
       readyAtEpochMs: job.readyAtEpochMs,
+      processedAtEpochMs: job.processedAtEpochMs,
+      source: job.source,
       remainingMs,
       isReady: remainingMs === 0,
     }
@@ -960,7 +990,7 @@ export function createGameServices(
   }
 
   const getBarnStateSnapshot = (): BarnStateSnapshot => {
-    return buildBarnStateSnapshot()
+    return buildBarnStateSnapshot(reconcileProcessedBarnJobs())
   }
 
   const commitInventoryState = (
@@ -1012,11 +1042,12 @@ export function createGameServices(
     state: SaveBarnStateV1,
     options: {
       persist?: boolean
+      nowEpochMs?: number
     } = {},
   ): BarnStateSnapshot => {
     const normalized = normalizeBarnSaveState(state)
     game.registry.set(BARN_STATE_REGISTRY_KEY, normalized)
-    const snapshot = buildBarnStateSnapshot(normalized)
+    const snapshot = buildBarnStateSnapshot(normalized, options.nowEpochMs)
     game.events.emit(BARN_STATE_CHANGED_EVENT, snapshot)
 
     if (options.persist !== false) {
@@ -1354,6 +1385,59 @@ export function createGameServices(
     return saveState
   }
 
+  const reconcileProcessedBarnJobs = (nowEpochMs: number = Date.now()): SaveBarnStateV1 => {
+    const currentBarnState = readBarnSaveState()
+    const newlyProcessedJobs = currentBarnState.jobs.filter(
+      (job) => job.processedAtEpochMs === null && job.readyAtEpochMs <= nowEpochMs,
+    )
+
+    if (newlyProcessedJobs.length === 0) {
+      return currentBarnState
+    }
+
+    const nextBarnState = normalizeBarnSaveState({
+      jobs: currentBarnState.jobs.map((job) => {
+        const nextJob = cloneBarnJobState(job)
+        if (nextJob.processedAtEpochMs === null && nextJob.readyAtEpochMs <= nowEpochMs) {
+          nextJob.processedAtEpochMs = nextJob.readyAtEpochMs
+        }
+
+        return nextJob
+      }),
+    })
+
+    setBarnSaveState(nextBarnState, { persist: false, nowEpochMs })
+    persistCurrentState()
+
+    const balance = getCurrencyBalance()
+    const activeJobCount = nextBarnState.jobs.length
+
+    for (const job of newlyProcessedJobs) {
+      const recipe = getBarnProcessingRecipeConfig(job.recipeId)
+      telemetry.track('barn_job_processed', {
+        recipeId: job.recipeId,
+        recipeLabel: recipe.label,
+        jobId: job.id,
+        inputLineItems: formatBarnLineItems(recipe.inputs),
+        outputLineItems: formatBarnLineItems(recipe.outputs),
+        missingLineItems: '',
+        fee: recipe.fee,
+        durationMs: recipe.durationMs,
+        activeJobCount,
+        balance,
+        source: job.source,
+        queuedAtEpochMs: job.startedAtEpochMs,
+        readyAtEpochMs: job.readyAtEpochMs,
+        processedAtEpochMs: job.readyAtEpochMs,
+        claimedAtEpochMs: null,
+        reason: null,
+        eventTimestampMs: job.readyAtEpochMs,
+      })
+    }
+
+    return nextBarnState
+  }
+
   const normalizeInventoryMutationInput = (
     itemId: string,
     quantity: number,
@@ -1451,12 +1535,12 @@ export function createGameServices(
     recipeId: BarnProcessingRecipeId,
     source: string = 'unspecified',
   ): BarnStartJobResult => {
-    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const normalizedSource = normalizeBarnJobSource(source)
     const recipe = getBarnProcessingRecipeConfig(recipeId)
     const now = Date.now()
     const currentInventory = readInventoryState()
     const currentBalance = readCurrencyBalance()
-    const currentBarnState = readBarnSaveState()
+    const currentBarnState = reconcileProcessedBarnJobs(now)
     const missingInputs = recipe.inputs
       .map((item) => {
         const availableQuantity = currentInventory[item.itemId] ?? 0
@@ -1480,6 +1564,12 @@ export function createGameServices(
           : null
 
     if (startFailure) {
+      const missingLineItems = formatBarnLineItems(
+        missingInputs.map((item) => ({
+          itemId: item.itemId,
+          quantity: Math.max(0, item.requiredQuantity - item.availableQuantity),
+        })),
+      )
       const state = buildBarnStateSnapshot(currentBarnState, now)
       telemetry.track('barn_job_start_attempt', {
         recipeId,
@@ -1487,17 +1577,31 @@ export function createGameServices(
         result: startFailure,
         inputLineItems: formatBarnLineItems(recipe.inputs),
         outputLineItems: formatBarnLineItems(recipe.outputs),
-        missingLineItems: formatBarnLineItems(
-          missingInputs.map((item) => ({
-            itemId: item.itemId,
-            quantity: Math.max(0, item.requiredQuantity - item.availableQuantity),
-          })),
-        ),
+        missingLineItems,
         fee: recipe.fee,
         durationMs: recipe.durationMs,
         activeJobCount: currentBarnState.jobs.length,
         balance: currentBalance,
         source: normalizedSource,
+        eventTimestampMs: now,
+      })
+      telemetry.track('barn_job_aborted', {
+        recipeId,
+        recipeLabel: recipe.label,
+        jobId: null,
+        inputLineItems: formatBarnLineItems(recipe.inputs),
+        outputLineItems: formatBarnLineItems(recipe.outputs),
+        missingLineItems,
+        fee: recipe.fee,
+        durationMs: recipe.durationMs,
+        activeJobCount: currentBarnState.jobs.length,
+        balance: currentBalance,
+        source: normalizedSource,
+        queuedAtEpochMs: null,
+        readyAtEpochMs: null,
+        processedAtEpochMs: null,
+        claimedAtEpochMs: null,
+        reason: startFailure,
         eventTimestampMs: now,
       })
 
@@ -1549,12 +1653,14 @@ export function createGameServices(
       recipeId,
       startedAtEpochMs: now,
       readyAtEpochMs: now + recipe.durationMs,
+      processedAtEpochMs: null,
+      source: normalizedSource,
     }
     const state = setBarnSaveState(
       {
         jobs: [...currentBarnState.jobs, job],
       },
-      { persist: false },
+      { persist: false, nowEpochMs: now },
     )
 
     persistCurrentState()
@@ -1586,6 +1692,25 @@ export function createGameServices(
       source: normalizedSource,
       eventTimestampMs: now,
     })
+    telemetry.track('barn_job_queued', {
+      recipeId,
+      recipeLabel: recipe.label,
+      jobId: job.id,
+      inputLineItems: formatBarnLineItems(recipe.inputs),
+      outputLineItems: formatBarnLineItems(recipe.outputs),
+      missingLineItems: '',
+      fee: recipe.fee,
+      durationMs: recipe.durationMs,
+      activeJobCount: state.jobs.length,
+      balance,
+      source: normalizedSource,
+      queuedAtEpochMs: now,
+      readyAtEpochMs: job.readyAtEpochMs,
+      processedAtEpochMs: null,
+      claimedAtEpochMs: null,
+      reason: null,
+      eventTimestampMs: now,
+    })
 
     return {
       result: 'started',
@@ -1599,9 +1724,9 @@ export function createGameServices(
 
   const claimBarnJob = (jobId: string, source: string = 'unspecified'): BarnClaimJobResult => {
     const normalizedJobId = jobId.trim()
-    const normalizedSource = source.trim().length > 0 ? source.trim() : 'unspecified'
+    const normalizedSource = normalizeBarnJobSource(source)
     const now = Date.now()
-    const currentBarnState = readBarnSaveState()
+    const currentBarnState = reconcileProcessedBarnJobs(now)
 
     if (normalizedJobId.length === 0) {
       return {
@@ -1664,16 +1789,37 @@ export function createGameServices(
 
     persistCurrentState()
 
+    const balance = getCurrencyBalance()
+
     telemetry.track('barn_job_completed', {
       recipeId: job.recipeId,
       recipeLabel: recipe.label,
       jobId: job.id,
       outputLineItems: formatBarnLineItems(recipe.outputs),
       activeJobCount: state.jobs.length,
-      balance: getCurrencyBalance(),
+      balance,
       source: normalizedSource,
       startedAtEpochMs: job.startedAtEpochMs,
       readyAtEpochMs: job.readyAtEpochMs,
+      eventTimestampMs: now,
+    })
+    telemetry.track('barn_job_claimed', {
+      recipeId: job.recipeId,
+      recipeLabel: recipe.label,
+      jobId: job.id,
+      inputLineItems: formatBarnLineItems(recipe.inputs),
+      outputLineItems: formatBarnLineItems(recipe.outputs),
+      missingLineItems: '',
+      fee: recipe.fee,
+      durationMs: recipe.durationMs,
+      activeJobCount: state.jobs.length,
+      balance,
+      source: normalizedSource,
+      queuedAtEpochMs: job.startedAtEpochMs,
+      readyAtEpochMs: job.readyAtEpochMs,
+      processedAtEpochMs: job.processedAtEpochMs ?? job.readyAtEpochMs,
+      claimedAtEpochMs: now,
+      reason: null,
       eventTimestampMs: now,
     })
     progressReturnObjective(
@@ -1687,7 +1833,7 @@ export function createGameServices(
       jobId: normalizedJobId,
       recipeId: job.recipeId,
       outputs: recipe.outputs.map((item) => cloneBarnLineItem(item)),
-      balance: getCurrencyBalance(),
+      balance,
       state,
     }
   }

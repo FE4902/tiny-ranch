@@ -2,6 +2,17 @@ import { expect, test, type Page } from '@playwright/test'
 
 const SMOKE_HARNESS_KEY = '__TINY_RANCH_SMOKE__'
 const SAVE_STORAGE_KEY = 'tiny-ranch:save-state'
+const TELEMETRY_BUFFER_KEY = '__TINY_RANCH_BARN_TELEMETRY__'
+const TELEMETRY_BUFFER_STORAGE_KEY = 'tiny-ranch:smoke:telemetry'
+const CHEESE_PRESS_INPUT_UNIT_VALUE = 28
+const CHEESE_PRESS_OUTPUT_UNIT_VALUE = 60
+const CHEESE_PRESS_EXPECTED_NET_VALUE = 4
+const BARN_LIFECYCLE_EVENT_NAMES = new Set([
+  'barn_job_aborted',
+  'barn_job_queued',
+  'barn_job_processed',
+  'barn_job_claimed',
+])
 
 type SmokeSnapshot = {
   activeScene: string | null
@@ -33,6 +44,11 @@ type BarnUiSnapshot = {
   cycleRecipeButtonCenter: { x: number; y: number } | null
   startRecipeButtonCenter: { x: number; y: number } | null
   claimButtonCenter: { x: number; y: number } | null
+}
+
+type BufferedTelemetryEvent = {
+  name: string
+  payload: Record<string, unknown>
 }
 
 type BarnSmokeHarness = {
@@ -71,6 +87,50 @@ async function waitForSmokeHarness(page: Page): Promise<void> {
 async function launchSmokeSession(page: Page): Promise<void> {
   await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
+}
+
+async function installTelemetryBuffer(page: Page): Promise<void> {
+  await page.addInitScript(
+    ({ bufferKey, storageKey }) => {
+      const key = bufferKey as keyof Window
+      const windowRecord = window as unknown as Record<string, unknown>
+      let events: unknown[] = []
+
+      try {
+        const raw = window.sessionStorage.getItem(storageKey)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          if (Array.isArray(parsed)) {
+            events = parsed
+          }
+        }
+      } catch {
+        events = []
+      }
+
+      const persist = (): void => {
+        try {
+          window.sessionStorage.setItem(storageKey, JSON.stringify(events))
+        } catch {
+          // Ignore storage write failures in smoke-only helpers.
+        }
+      }
+
+      windowRecord[key] = events
+      persist()
+
+      window.addEventListener('tiny-ranch:telemetry', (event) => {
+        const detail = (event as CustomEvent<unknown>).detail
+        if (!detail || typeof detail !== 'object') {
+          return
+        }
+
+        events.push(detail)
+        persist()
+      })
+    },
+    { bufferKey: TELEMETRY_BUFFER_KEY, storageKey: TELEMETRY_BUFFER_STORAGE_KEY },
+  )
 }
 
 async function debugNavigate(page: Page, sceneKey: 'ranch' | 'barn'): Promise<void> {
@@ -122,6 +182,46 @@ async function getBarnUiSnapshot(page: Page): Promise<BarnUiSnapshot> {
 
     return harness.getBarnUiSnapshot()
   }, SMOKE_HARNESS_KEY)
+}
+
+async function getTelemetryEvents(page: Page): Promise<BufferedTelemetryEvent[]> {
+  return page.evaluate((bufferKey: string) => {
+    const key = bufferKey as keyof Window
+    const windowRecord = window as unknown as Record<string, unknown>
+    const events = windowRecord[key]
+    if (!Array.isArray(events)) {
+      return []
+    }
+
+    return events
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null
+        }
+
+        const candidate = entry as {
+          name?: unknown
+          payload?: unknown
+        }
+        if (typeof candidate.name !== 'string' || !candidate.payload || typeof candidate.payload !== 'object') {
+          return null
+        }
+
+        return {
+          name: candidate.name,
+          payload: candidate.payload as Record<string, unknown>,
+        }
+      })
+      .filter((entry): entry is BufferedTelemetryEvent => entry !== null)
+  }, TELEMETRY_BUFFER_KEY)
+}
+
+function getCheesePressEconomyValue(snapshot: BarnSnapshot): number {
+  return (
+    snapshot.balance +
+    (snapshot.inventory.milk ?? 0) * CHEESE_PRESS_INPUT_UNIT_VALUE +
+    (snapshot.inventory.cheese ?? 0) * CHEESE_PRESS_OUTPUT_UNIT_VALUE
+  )
 }
 
 async function debugSeedInventory(page: Page, itemId: string, quantity: number): Promise<void> {
@@ -265,11 +365,12 @@ test('desktop Barn scene keeps keyboard parity for recipe start and claim after 
     .toBe(1)
 })
 
-test('mobile Barn scene touch flow shows missing-input feedback and persists claim state across reload', async ({
+test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy deltas, and persists claim state across reload', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'mobile-chromium', 'Touch Barn smoke runs only for mobile.')
 
+  await installTelemetryBuffer(page)
   await launchSmokeSession(page)
   await debugNavigate(page, 'barn')
 
@@ -291,6 +392,10 @@ test('mobile Barn scene touch flow shows missing-input feedback and persists cla
     .toBe('Missing 2 milk.')
 
   await debugSeedInventory(page, 'milk', 2)
+  const seededSnapshot = await getBarnSnapshot(page)
+  const seededEconomyValue = getCheesePressEconomyValue(seededSnapshot)
+  expect(seededSnapshot.inventory.milk ?? 0).toBe(2)
+
   await tapBarnButton(page, 'startRecipeButtonCenter')
 
   await expect
@@ -300,9 +405,21 @@ test('mobile Barn scene touch flow shows missing-input feedback and persists cla
     })
     .toBe(1)
 
+  const queuedSnapshot = await getBarnSnapshot(page)
+  expect(queuedSnapshot.inventory.milk ?? 0).toBe(0)
+  expect(queuedSnapshot.inventory.cheese ?? 0).toBe(0)
+  expect(getCheesePressEconomyValue(queuedSnapshot) - seededEconomyValue).toBe(
+    -CHEESE_PRESS_INPUT_UNIT_VALUE * 2,
+  )
+
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
   expect((await getSnapshot(page)).activeScene).toBe('barn')
+
+  const reloadedQueuedSnapshot = await getBarnSnapshot(page)
+  expect(getCheesePressEconomyValue(reloadedQueuedSnapshot) - seededEconomyValue).toBe(
+    -CHEESE_PRESS_INPUT_UNIT_VALUE * 2,
+  )
 
   await makeFirstBarnJobReady(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
@@ -322,6 +439,11 @@ test('mobile Barn scene touch flow shows missing-input feedback and persists cla
     })
     .toBe(true)
 
+  const readySnapshot = await getBarnSnapshot(page)
+  expect(getCheesePressEconomyValue(readySnapshot) - seededEconomyValue).toBe(
+    -CHEESE_PRESS_INPUT_UNIT_VALUE * 2,
+  )
+
   await tapBarnButton(page, 'claimButtonCenter')
 
   await expect
@@ -338,6 +460,11 @@ test('mobile Barn scene touch flow shows missing-input feedback and persists cla
     })
     .toBe(1)
 
+  const claimedSnapshot = await getBarnSnapshot(page)
+  expect(getCheesePressEconomyValue(claimedSnapshot) - seededEconomyValue).toBe(
+    CHEESE_PRESS_EXPECTED_NET_VALUE,
+  )
+
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
 
@@ -345,4 +472,40 @@ test('mobile Barn scene touch flow shows missing-input feedback and persists cla
   expect((await getSnapshot(page)).activeScene).toBe('barn')
   expect(persistedSnapshot.jobs).toHaveLength(0)
   expect(persistedSnapshot.inventory.cheese).toBe(1)
+  expect(getCheesePressEconomyValue(persistedSnapshot) - seededEconomyValue).toBe(
+    CHEESE_PRESS_EXPECTED_NET_VALUE,
+  )
+
+  const lifecycleEvents = (await getTelemetryEvents(page)).filter((event) =>
+    BARN_LIFECYCLE_EVENT_NAMES.has(event.name),
+  )
+  expect(lifecycleEvents.map((event) => event.name)).toEqual([
+    'barn_job_aborted',
+    'barn_job_queued',
+    'barn_job_processed',
+    'barn_job_claimed',
+  ])
+
+  const [abortedEvent, queuedEvent, processedEvent, claimedEvent] = lifecycleEvents
+  const abortedPayload = abortedEvent?.payload ?? {}
+  const queuedPayload = queuedEvent?.payload ?? {}
+  const processedPayload = processedEvent?.payload ?? {}
+  const claimedPayload = claimedEvent?.payload ?? {}
+
+  expect(abortedPayload.reason).toBe('insufficient_items')
+  expect(abortedPayload.source).toBe('barn:pointer')
+  expect(abortedPayload.jobId).toBeNull()
+  expect(queuedPayload.jobId).toBe(processedPayload.jobId)
+  expect(processedPayload.jobId).toBe(claimedPayload.jobId)
+  expect(queuedPayload.source).toBe('barn:pointer')
+  expect(processedPayload.source).toBe('barn:pointer')
+  expect(claimedPayload.source).toBe('barn:pointer')
+  expect(queuedPayload.activeJobCount).toBe(1)
+  expect(processedPayload.activeJobCount).toBe(1)
+  expect(claimedPayload.activeJobCount).toBe(0)
+  expect(queuedPayload.queuedAtEpochMs).toBe(queuedPayload.eventTimestampMs)
+  expect(processedPayload.processedAtEpochMs).toBe(processedPayload.readyAtEpochMs)
+  expect(processedPayload.eventTimestampMs).toBe(processedPayload.processedAtEpochMs)
+  expect(claimedPayload.processedAtEpochMs).toBe(processedPayload.processedAtEpochMs)
+  expect(claimedPayload.claimedAtEpochMs).toBe(claimedPayload.eventTimestampMs)
 })

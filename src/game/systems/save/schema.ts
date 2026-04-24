@@ -22,6 +22,7 @@ import {
 import { PLAYABLE_SCENES, type PlayableSceneKey } from '../../constants'
 
 export const SAVE_SCHEMA_VERSION = 1 as const
+export const DEFAULT_BARN_JOB_SOURCE = 'unspecified' as const
 
 export interface SaveMetadataV1 {
   savedAtEpochMs: number
@@ -80,6 +81,8 @@ export interface SaveBarnJobStateV1 {
   recipeId: BarnProcessingRecipeId
   startedAtEpochMs: number
   readyAtEpochMs: number
+  processedAtEpochMs: number | null
+  source: string
 }
 
 export interface SaveBarnStateV1 {
@@ -482,11 +485,24 @@ function decodeBarnJobState(value: unknown): SaveBarnJobStateV1 | null {
     return null
   }
 
+  const source =
+    typeof value.source === 'string' && value.source.trim().length > 0
+      ? value.source.trim()
+      : DEFAULT_BARN_JOB_SOURCE
+  const processedAtEpochMs =
+    isNullableNonNegativeInteger(value.processedAtEpochMs) &&
+    value.processedAtEpochMs !== null &&
+    value.processedAtEpochMs >= value.readyAtEpochMs
+      ? value.processedAtEpochMs
+      : null
+
   return {
     id: value.id,
     recipeId: value.recipeId,
     startedAtEpochMs: value.startedAtEpochMs,
     readyAtEpochMs: value.readyAtEpochMs,
+    processedAtEpochMs,
+    source,
   }
 }
 
