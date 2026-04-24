@@ -28,6 +28,29 @@ type BarnClaimDebugResult = {
   jobCount: number
 }
 
+type ReturnObjectiveSnapshot = {
+  objectiveLoopEnabled: boolean
+  streakBonusEnabled: boolean
+  retentionKillSwitchEnabled: boolean
+  activeObjectiveId: string | null
+  metric: 'harvest_count' | 'sell_value' | 'barn_claim_count' | null
+  progressValue: number
+  targetValue: number
+  rewardAmount: number
+  assignmentCycle: number
+  streakTier: number
+  claimRewardAmount: number
+  nextStreakTier: number
+  nextClaimRewardAmount: number
+}
+
+type ReturnObjectiveClaimDebugResult = {
+  result: 'claimed' | 'not_completed' | 'already_claimed' | 'no_active_objective'
+  awardedRewardAmount: number
+  awardedStreakTier: number
+  assignmentCycleAfterClaim: number
+}
+
 async function waitForSmokeHarness(page: Page): Promise<void> {
   await page.waitForFunction(
     (harnessKey: string) => {
@@ -150,6 +173,63 @@ async function debugSaveGameState(page: Page): Promise<void> {
   }, SMOKE_HARNESS_KEY)
 }
 
+async function getReturnObjectiveSnapshot(page: Page): Promise<ReturnObjectiveSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getReturnObjectiveSnapshot: () => ReturnObjectiveSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getReturnObjectiveSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function claimCurrentReturnObjective(page: Page): Promise<ReturnObjectiveClaimDebugResult> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugClaimCurrentReturnObjective: () => ReturnObjectiveClaimDebugResult
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.debugClaimCurrentReturnObjective()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function makeFirstBarnJobReady(page: Page): Promise<void> {
+  await page.evaluate((storageKey: string) => {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) {
+      throw new Error('Expected persisted Barn save payload.')
+    }
+
+    const payload = JSON.parse(raw) as {
+      barn?: {
+        jobs?: Array<{
+          readyAtEpochMs: number
+        }>
+      }
+    }
+
+    const job = payload.barn?.jobs?.[0]
+    if (!job) {
+      throw new Error('Expected a persisted Barn job in localStorage.')
+    }
+
+    job.readyAtEpochMs = Date.now() - 1
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
+  }, SAVE_STORAGE_KEY)
+}
+
 async function readRawSavePayload(page: Page): Promise<Record<string, unknown> | null> {
   return page.evaluate((storageKey: string) => {
     const raw = window.localStorage.getItem(storageKey)
@@ -215,28 +295,7 @@ test('barn jobs survive reload, become claimable, and persist their outputs', as
   expect(reloadedSnapshot.jobs).toHaveLength(1)
   expect(reloadedSnapshot.jobs[0]?.id).toBe(startResult.jobId)
 
-  await page.evaluate((storageKey: string) => {
-    const raw = window.localStorage.getItem(storageKey)
-    if (!raw) {
-      throw new Error('Expected persisted Barn save payload.')
-    }
-
-    const payload = JSON.parse(raw) as {
-      barn?: {
-        jobs?: Array<{
-          readyAtEpochMs: number
-        }>
-      }
-    }
-
-    const job = payload.barn?.jobs?.[0]
-    if (!job) {
-      throw new Error('Expected a persisted Barn job in localStorage.')
-    }
-
-    job.readyAtEpochMs = Date.now() - 1
-    window.localStorage.setItem(storageKey, JSON.stringify(payload))
-  }, SAVE_STORAGE_KEY)
+  await makeFirstBarnJobReady(page)
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
@@ -260,4 +319,52 @@ test('barn jobs survive reload, become claimable, and persist their outputs', as
   const persistedSnapshot = await getBarnSnapshot(page)
   expect(persistedSnapshot.jobs).toHaveLength(0)
   expect(persistedSnapshot.inventory.cheese).toBe(1)
+})
+
+test('barn claim progress completes the Barn return objective without bypassing gameplay hooks', async ({ page }) => {
+  await launchSmokeSession(page)
+
+  let barnObjective: ReturnObjectiveSnapshot | null = null
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const snapshot = await getReturnObjectiveSnapshot(page)
+    if (snapshot.metric === 'barn_claim_count') {
+      barnObjective = snapshot
+      break
+    }
+
+    const claim = await claimCurrentReturnObjective(page)
+    expect(claim.result).toBe('claimed')
+  }
+
+  expect(barnObjective).not.toBeNull()
+  expect(barnObjective?.objectiveLoopEnabled).toBe(true)
+  expect(barnObjective?.metric).toBe('barn_claim_count')
+  expect(barnObjective?.progressValue).toBe(0)
+  expect(barnObjective?.targetValue).toBe(1)
+
+  await debugSeedInventory(page, 'milk', 2)
+
+  const startResult = await debugStartBarnJob(page, 'cheese_press')
+  expect(startResult.result).toBe('started')
+  expect(startResult.jobId).not.toBeNull()
+
+  await makeFirstBarnJobReady(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const claimResult = await debugClaimBarnJob(page, startResult.jobId ?? '')
+  expect(claimResult.result).toBe('claimed')
+  expect(claimResult.recipeId).toBe('cheese_press')
+
+  const progressedObjective = await getReturnObjectiveSnapshot(page)
+  expect(progressedObjective.metric).toBe('barn_claim_count')
+  expect(progressedObjective.progressValue).toBe(progressedObjective.targetValue)
+
+  const rewardClaim = await claimCurrentReturnObjective(page)
+  expect(rewardClaim.result).toBe('claimed')
+  expect(rewardClaim.awardedRewardAmount).toBeGreaterThan(0)
+
+  const finalBarnSnapshot = await getBarnSnapshot(page)
+  expect(finalBarnSnapshot.jobs).toHaveLength(0)
+  expect(finalBarnSnapshot.inventory.cheese).toBe(1)
 })

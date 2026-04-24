@@ -40,7 +40,7 @@ type ReturnObjectiveSnapshot = {
   streakBonusEnabled: boolean
   retentionKillSwitchEnabled: boolean
   activeObjectiveId: string | null
-  metric: 'harvest_count' | 'sell_value' | null
+  metric: 'harvest_count' | 'sell_value' | 'barn_claim_count' | null
   progressValue: number
   targetValue: number
   rewardAmount: number

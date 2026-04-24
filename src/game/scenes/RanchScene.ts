@@ -691,7 +691,12 @@ export class RanchScene extends Phaser.Scene {
       return null
     }
 
-    const metricLabel = state.metric === 'harvest_count' ? 'Harvest progress' : 'Sell value progress'
+    const metricLabel =
+      state.metric === 'harvest_count'
+        ? 'Harvest progress'
+        : state.metric === 'sell_value'
+          ? 'Sell value progress'
+          : 'Barn claim progress'
     const statusLabel = state.isCompleted ? 'Complete: claim your reward.' : 'In progress.'
     const rewardDetail =
       state.streakBonusEnabled && state.streakRewardBonusAmount > 0

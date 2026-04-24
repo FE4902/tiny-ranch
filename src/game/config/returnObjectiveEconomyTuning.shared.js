@@ -1,4 +1,6 @@
-const RETENTION_METRICS = Object.freeze(['harvest_count', 'sell_value'])
+import { barnProcessingRecipeIds } from './barnRecipes.shared.js'
+
+const RETENTION_METRICS = Object.freeze(['harvest_count', 'sell_value', 'barn_claim_count'])
 
 const OBJECTIVE_TARGET_BOUNDS = Object.freeze({
   min: 1,
@@ -89,6 +91,15 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
           targetValue: 56,
           rewardAmount: 40,
         },
+        {
+          id: 'barn_claim_cheese_press_1',
+          goalId: 'barn_claim_goal',
+          title: 'Process and claim 1 cheese batch',
+          metric: 'barn_claim_count',
+          barnRecipeId: 'cheese_press',
+          targetValue: 1,
+          rewardAmount: 30,
+        },
       ],
       streak: {
         maxTier: 5,
@@ -111,9 +122,10 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
             claimCadenceHours: [20, 22, 19, 21],
             spendAmountsBySessionCycle: [0, 18, 0, 12],
             baseline: {
-              currencyEarned: 1764,
+              currencyEarned: 1691,
               currencySpent: 210,
-              streakBonusTotal: 756,
+              streakBonusTotal: 733,
+              barnNetValueEarned: 36,
             },
           },
           {
@@ -123,9 +135,10 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
             claimCadenceHours: [20, 20, 52, 20, 44],
             spendAmountsBySessionCycle: [0, 14, 0, 0, 22],
             baseline: {
-              currencyEarned: 1609,
+              currencyEarned: 1541,
               currencySpent: 194,
-              streakBonusTotal: 601,
+              streakBonusTotal: 583,
+              barnNetValueEarned: 36,
             },
           },
         ],
@@ -169,6 +182,15 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
           targetValue: 64,
           rewardAmount: 46,
         },
+        {
+          id: 'barn_claim_cheese_press_1',
+          goalId: 'barn_claim_goal',
+          title: 'Process and claim 1 cheese batch',
+          metric: 'barn_claim_count',
+          barnRecipeId: 'cheese_press',
+          targetValue: 1,
+          rewardAmount: 34,
+        },
       ],
       streak: {
         maxTier: 5,
@@ -191,9 +213,10 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
             claimCadenceHours: [20, 22, 19, 21],
             spendAmountsBySessionCycle: [0, 20, 0, 16],
             baseline: {
-              currencyEarned: 2107,
+              currencyEarned: 2096,
               currencySpent: 252,
-              streakBonusTotal: 915,
+              streakBonusTotal: 1006,
+              barnNetValueEarned: 36,
             },
           },
           {
@@ -203,9 +226,10 @@ const BUILT_IN_RETENTION_TUNING_PACKS = Object.freeze([
             claimCadenceHours: [20, 20, 52, 20, 44],
             spendAmountsBySessionCycle: [0, 16, 0, 0, 24],
             baseline: {
-              currencyEarned: 1894,
-              currencySpent: 224,
-              streakBonusTotal: 722,
+              currencyEarned: 1895,
+              currencySpent: 216,
+              streakBonusTotal: 805,
+              barnNetValueEarned: 36,
             },
           },
         ],
@@ -386,6 +410,22 @@ function normalizeObjective(rawObjective, index, rewardCaps, context) {
   if (!RETENTION_METRICS.includes(metric)) {
     throw new Error(`tuning.objectives[${index}].metric "${metric}" is not supported`)
   }
+  const barnRecipeId =
+    typeof rawObjective.barnRecipeId === 'string' && rawObjective.barnRecipeId.trim().length > 0
+      ? rawObjective.barnRecipeId.trim()
+      : null
+
+  if (metric === 'barn_claim_count') {
+    if (barnRecipeId === null) {
+      throw new Error(`tuning.objectives[${index}].barnRecipeId is required for barn claim objectives`)
+    }
+
+    if (!barnProcessingRecipeIds.includes(barnRecipeId)) {
+      throw new Error(
+        `tuning.objectives[${index}].barnRecipeId "${barnRecipeId}" is not supported`,
+      )
+    }
+  }
 
   const rewardBounds = {
     min: OBJECTIVE_REWARD_BOUNDS.min,
@@ -397,6 +437,7 @@ function normalizeObjective(rawObjective, index, rewardCaps, context) {
     goalId: normalizeNonEmptyString(rawObjective.goalId, `tuning.objectives[${index}].goalId`),
     title: normalizeNonEmptyString(rawObjective.title, `tuning.objectives[${index}].title`),
     metric,
+    barnRecipeId,
     targetValue: normalizeIntegerInBounds(
       rawObjective.targetValue,
       `tuning.objectives[${index}].targetValue`,
@@ -552,6 +593,12 @@ function normalizeBalanceScenario(rawScenario, index, context) {
       streakBonusTotal: normalizeIntegerInBounds(
         rawScenario.baseline.streakBonusTotal,
         `tuning.deterministicBalanceCheck.scenarios[${index}].baseline.streakBonusTotal`,
+        BALANCE_BASELINE_VALUE_BOUNDS,
+        context,
+      ),
+      barnNetValueEarned: normalizeIntegerInBounds(
+        rawScenario.baseline.barnNetValueEarned ?? 0,
+        `tuning.deterministicBalanceCheck.scenarios[${index}].baseline.barnNetValueEarned`,
         BALANCE_BASELINE_VALUE_BOUNDS,
         context,
       ),

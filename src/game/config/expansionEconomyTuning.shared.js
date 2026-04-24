@@ -33,6 +33,9 @@ const expansionEconomyTuning = Object.freeze({
     egg: 18,
     milk: 28,
     wool: 34,
+    cheese: 60,
+    animal_feed: 52,
+    yarn: 78,
   }),
   upgrades: Object.freeze({
     greenhouse_tools: Object.freeze({

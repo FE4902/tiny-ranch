@@ -1,3 +1,8 @@
+import {
+  barnProcessingRecipeDefinitions,
+  barnProcessingRecipeIds as sharedBarnProcessingRecipeIds,
+} from './barnRecipes.shared.js'
+
 export interface BarnProcessingLineItem {
   itemId: string
   quantity: number
@@ -64,39 +69,15 @@ function defineBarnProcessingRecipe(
 }
 
 export const barnProcessingRecipeConfigs = {
-  cheese_press: defineBarnProcessingRecipe({
-    label: 'Cheese Press',
-    description: 'Press fresh milk into a shelf-stable cheese wheel.',
-    durationMs: 45_000,
-    fee: 0,
-    inputs: [{ itemId: 'milk', quantity: 2 }],
-    outputs: [{ itemId: 'cheese', quantity: 1 }],
-  }),
-  feed_mix: defineBarnProcessingRecipe({
-    label: 'Feed Mix',
-    description: 'Blend turnips and eggs into a richer animal feed batch.',
-    durationMs: 30_000,
-    fee: 4,
-    inputs: [
-      { itemId: 'turnip', quantity: 2 },
-      { itemId: 'egg', quantity: 1 },
-    ],
-    outputs: [{ itemId: 'animal_feed', quantity: 1 }],
-  }),
-  wool_bundle: defineBarnProcessingRecipe({
-    label: 'Wool Bundle',
-    description: 'Card loose wool into bundled yarn stock for later sale.',
-    durationMs: 60_000,
-    fee: 6,
-    inputs: [{ itemId: 'wool', quantity: 2 }],
-    outputs: [{ itemId: 'yarn', quantity: 1 }],
-  }),
+  cheese_press: defineBarnProcessingRecipe(barnProcessingRecipeDefinitions.cheese_press),
+  feed_mix: defineBarnProcessingRecipe(barnProcessingRecipeDefinitions.feed_mix),
+  wool_bundle: defineBarnProcessingRecipe(barnProcessingRecipeDefinitions.wool_bundle),
 } as const
 
 export type BarnProcessingRecipeId = keyof typeof barnProcessingRecipeConfigs
 
 export const barnProcessingRecipeIds = Object.freeze(
-  Object.keys(barnProcessingRecipeConfigs) as BarnProcessingRecipeId[],
+  sharedBarnProcessingRecipeIds as BarnProcessingRecipeId[],
 )
 
 export const barnProcessingRecipes = Object.freeze(

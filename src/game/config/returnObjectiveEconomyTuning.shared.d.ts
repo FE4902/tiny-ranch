@@ -1,10 +1,11 @@
-export type ReturnObjectiveMetric = 'harvest_count' | 'sell_value'
+export type ReturnObjectiveMetric = 'harvest_count' | 'sell_value' | 'barn_claim_count'
 
 export interface ReturnObjectiveEconomyObjectiveConfig {
   readonly id: string
   readonly goalId: string
   readonly title: string
   readonly metric: ReturnObjectiveMetric
+  readonly barnRecipeId?: string | null
   readonly targetValue: number
   readonly rewardAmount: number
 }
@@ -25,6 +26,7 @@ export interface ReturnObjectiveBalanceBaselineConfig {
   readonly currencyEarned: number
   readonly currencySpent: number
   readonly streakBonusTotal: number
+  readonly barnNetValueEarned?: number
 }
 
 export interface ReturnObjectiveBalanceScenarioConfig {

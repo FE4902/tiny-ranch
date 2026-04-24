@@ -1676,6 +1676,11 @@ export function createGameServices(
       readyAtEpochMs: job.readyAtEpochMs,
       eventTimestampMs: now,
     })
+    progressReturnObjective(
+      'barn_claim_count',
+      1,
+      `barn:claim:${job.recipeId}:${normalizedSource}`,
+    )
 
     return {
       result: 'claimed',

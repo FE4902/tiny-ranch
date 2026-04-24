@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { barnProcessingRecipeDefinitions } from '../src/game/config/barnRecipes.shared.js'
+import { expansionEconomyTuning } from '../src/game/config/expansionEconomyTuning.shared.js'
 import { returnObjectiveEconomyTuning } from '../src/game/config/returnObjectiveEconomyTuning.shared.js'
 
 const BASE_STREAK_TIER_CONFIG = Object.freeze({
@@ -7,6 +9,7 @@ const BASE_STREAK_TIER_CONFIG = Object.freeze({
   rewardMultiplier: 1,
   rewardBonus: 0,
 })
+const DEFAULT_ITEM_SELL_PRICE = 4
 const MS_PER_HOUR = 60 * 60 * 1000
 
 function printUsage() {
@@ -136,6 +139,43 @@ function calculateClaimReward(baseRewardAmount, streakTier, tierConfigByTier) {
   }
 }
 
+function getItemSellUnitPrice(itemId) {
+  const normalizedItemId =
+    typeof itemId === 'string' ? itemId.trim().toLowerCase() : ''
+  if (normalizedItemId.length === 0) {
+    throw new Error('Item id is required to resolve sell value.')
+  }
+
+  return expansionEconomyTuning.itemSellUnitPrices[normalizedItemId] ?? DEFAULT_ITEM_SELL_PRICE
+}
+
+function calculateLineItemSellValue(lineItems) {
+  return lineItems.reduce((total, item) => total + getItemSellUnitPrice(item.itemId) * item.quantity, 0)
+}
+
+function calculateBarnNetValueEarned(objective) {
+  if (objective.metric !== 'barn_claim_count') {
+    return 0
+  }
+
+  if (typeof objective.barnRecipeId !== 'string' || objective.barnRecipeId.trim().length === 0) {
+    throw new Error(`Barn claim objective "${objective.id}" is missing barnRecipeId.`)
+  }
+
+  const recipe = barnProcessingRecipeDefinitions[objective.barnRecipeId]
+  if (!recipe) {
+    throw new Error(
+      `Barn claim objective "${objective.id}" references unknown recipe "${objective.barnRecipeId}".`,
+    )
+  }
+
+  return (
+    calculateLineItemSellValue(recipe.outputs) -
+    calculateLineItemSellValue(recipe.inputs) -
+    recipe.fee
+  )
+}
+
 function calculateDeltaPct(currentValue, baselineValue) {
   if (!Number.isFinite(baselineValue) || baselineValue === 0) {
     return currentValue === baselineValue ? 0 : Number.POSITIVE_INFINITY
@@ -217,6 +257,16 @@ function validateScenarioConfig(scenario, streakConfig) {
     throw new Error(`Scenario "${scenario.id}" baseline.streakBonusTotal must be a non-negative integer.`)
   }
 
+  if (
+    !Number.isFinite(scenario.baseline.barnNetValueEarned) ||
+    Math.floor(scenario.baseline.barnNetValueEarned) !== scenario.baseline.barnNetValueEarned ||
+    scenario.baseline.barnNetValueEarned < 0
+  ) {
+    throw new Error(
+      `Scenario "${scenario.id}" baseline.barnNetValueEarned must be a non-negative integer.`,
+    )
+  }
+
   if (!Number.isFinite(streakConfig.graceWindowMs) || streakConfig.graceWindowMs <= 0) {
     throw new Error('streak.graceWindowMs must be a positive number.')
   }
@@ -250,6 +300,7 @@ function evaluateScenario(scenario, options, objectives, streakConfig, guardrail
   let currencySpent = 0
   let streakBonusTotal = 0
   let baseRewardTotal = 0
+  let barnNetValueEarned = 0
 
   const objectiveClaimCounts = {}
   objectives.forEach((objective) => {
@@ -275,6 +326,7 @@ function evaluateScenario(scenario, options, objectives, streakConfig, guardrail
     currencyEarned += reward.totalRewardAmount
     streakBonusTotal += reward.streakBonusAmount
     baseRewardTotal += reward.baseRewardAmount
+    barnNetValueEarned += calculateBarnNetValueEarned(objective)
     objectiveClaimCounts[objective.id] += 1
 
     assignmentCycle += 1
@@ -286,12 +338,14 @@ function evaluateScenario(scenario, options, objectives, streakConfig, guardrail
     currencySpent += spendAmount
   }
 
-  const netCurrency = currencyEarned - currencySpent
-  const baselineNetCurrency = scenario.baseline.currencyEarned - scenario.baseline.currencySpent
-  const rewardInflationDeltaPct = calculateDeltaPct(currencyEarned, scenario.baseline.currencyEarned)
+  const totalEarned = currencyEarned + barnNetValueEarned
+  const baselineTotalEarned =
+    scenario.baseline.currencyEarned + scenario.baseline.barnNetValueEarned
+  const netCurrency = totalEarned - currencySpent
+  const baselineNetCurrency = baselineTotalEarned - scenario.baseline.currencySpent
+  const rewardInflationDeltaPct = calculateDeltaPct(totalEarned, baselineTotalEarned)
   const netInflationDeltaPct = calculateDeltaPct(netCurrency, baselineNetCurrency)
-  const streakBonusSharePct =
-    currencyEarned > 0 ? (streakBonusTotal / currencyEarned) * 100 : 0
+  const streakBonusSharePct = totalEarned > 0 ? (streakBonusTotal / totalEarned) * 100 : 0
 
   const failures = []
   if (rewardInflationDeltaPct > guardrails.maxRewardInflationDeltaPct) {
@@ -315,10 +369,12 @@ function evaluateScenario(scenario, options, objectives, streakConfig, guardrail
   return {
     scenario,
     sessionCount,
+    totalEarned,
     currencyEarned,
     currencySpent,
     netCurrency,
     baseRewardTotal,
+    barnNetValueEarned,
     streakBonusTotal,
     streakBonusSharePct,
     rewardInflationDeltaPct,
@@ -382,6 +438,8 @@ function run() {
     '## Config Surface',
     '',
     '- `src/game/config/returnObjectiveEconomyTuning.shared.js`',
+    '- `src/game/config/barnRecipes.shared.js`',
+    '- `src/game/config/expansionEconomyTuning.shared.js`',
     '- `scripts/check-return-objective-balance.mjs`',
     '',
     '## Simulation Inputs',
@@ -397,7 +455,7 @@ function run() {
     '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |',
     ...results.map((result) => {
       const status = result.failures.length === 0 ? 'PASS' : 'FAIL'
-      return `| ${result.scenario.id} | ${result.sessionCount} | ${result.currencyEarned} | ${result.currencySpent} | ${result.netCurrency} | ${result.streakBonusTotal} | ${result.streakBonusSharePct.toFixed(2)}% | ${formatPercent(result.rewardInflationDeltaPct)} | ${formatPercent(result.netInflationDeltaPct)} | ${status} |`
+      return `| ${result.scenario.id} | ${result.sessionCount} | ${result.totalEarned} | ${result.currencySpent} | ${result.netCurrency} | ${result.streakBonusTotal} | ${result.streakBonusSharePct.toFixed(2)}% | ${formatPercent(result.rewardInflationDeltaPct)} | ${formatPercent(result.netInflationDeltaPct)} | ${status} |`
     }),
     '',
     '## Guardrails',
@@ -412,6 +470,9 @@ function run() {
       .map((objective) => `${objective.id}:${result.objectiveClaimCounts[objective.id]}`)
       .join(', ')
     report.push(`- ${result.scenario.id} objective mix: ${objectiveMix}`)
+    report.push(
+      `- ${result.scenario.id} claim coins: ${result.currencyEarned}, Barn net value: ${result.barnNetValueEarned}`,
+    )
   })
 
   process.stdout.write(`${report.join('\n')}\n`)
