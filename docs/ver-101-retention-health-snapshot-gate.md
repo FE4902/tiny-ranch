@@ -31,7 +31,7 @@ In CI, use `npm run report:retention:health -- --run-playwright` so the snapshot
 The gate composes existing deterministic checks and applies source-controlled thresholds:
 
 - telemetry contract drift (`validate-retention-telemetry-contract`)
-- deterministic cohort export integrity (`test-retention-cohort-export`)
+- deterministic cohort export integrity, including Barn milestone completion/claim cadence (`test-retention-cohort-export`)
 - objective/streak economy guardrails (`check-return-objective-balance`)
 - long-run soak stability (`check-retention-soak`)
 - save migration compatibility (Playwright matrix, when Playwright checks are enabled)
@@ -44,7 +44,7 @@ When a metric fails, use this table to route triage quickly.
 | Failed metric key | Likely owning subsystem/check | Primary command |
 | --- | --- | --- |
 | `validatedEvents` | Telemetry schema + runtime payload literals (`src/game/systems/telemetry.ts`, `src/game/systems/runtime.ts`) | `node scripts/validate-retention-telemetry-contract.mjs` |
-| `sampleEvents` | Retention cohort summarizer (`scripts/export-retention-cohorts.mjs`) | `node scripts/test-retention-cohort-export.mjs` |
+| `sampleEvents`, `barnObjectiveCompletionRate`, `barnObjectiveClaimRate` | Retention cohort summarizer (`scripts/export-retention-cohorts.mjs`) | `node scripts/test-retention-cohort-export.mjs` |
 | `scenarioCount`, `failingScenarios`, `streakBonus.<scenario>` | Return objective/streak economy tuning (`src/game/config/returnObjectiveEconomyTuning.shared.js`) | `node scripts/check-return-objective-balance.mjs` |
 | `caseCount`, `failingCases`, `objectiveEnabledCaseCount`, `minimumObjectiveEnabledClaimRate` | Deterministic soak replay + save/load invariants (`scripts/check-retention-soak.mjs`) | `node scripts/check-retention-soak.mjs` |
 | `passedTests`, `failedTests` (save migration) | Save migration decode/re-save matrix (`tests/smoke/save-migration-matrix.spec.ts`) | `npx playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts --reporter=json` |

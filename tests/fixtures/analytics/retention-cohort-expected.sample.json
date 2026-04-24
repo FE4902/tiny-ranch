@@ -10,9 +10,14 @@
       "objectiveAssignedCount": 1,
       "objectiveCompletedCount": 1,
       "objectiveClaimedCount": 1,
+      "barnObjectiveAssignedCount": 0,
+      "barnObjectiveCompletedCount": 0,
+      "barnObjectiveClaimedCount": 0,
       "streakAdvancedCount": 1,
       "objectiveCompletionRate": 1,
       "claimRate": 1,
+      "barnObjectiveCompletionRate": null,
+      "barnObjectiveClaimRate": null,
       "streakAdvancementRate": 1
     },
     {
@@ -20,9 +25,14 @@
       "objectiveAssignedCount": 3,
       "objectiveCompletedCount": 1,
       "objectiveClaimedCount": 1,
+      "barnObjectiveAssignedCount": 0,
+      "barnObjectiveCompletedCount": 0,
+      "barnObjectiveClaimedCount": 0,
       "streakAdvancedCount": 0,
       "objectiveCompletionRate": 0.3333,
       "claimRate": 1,
+      "barnObjectiveCompletionRate": null,
+      "barnObjectiveClaimRate": null,
       "streakAdvancementRate": 0
     },
     {
@@ -30,9 +40,14 @@
       "objectiveAssignedCount": 4,
       "objectiveCompletedCount": 3,
       "objectiveClaimedCount": 2,
+      "barnObjectiveAssignedCount": 1,
+      "barnObjectiveCompletedCount": 1,
+      "barnObjectiveClaimedCount": 1,
       "streakAdvancedCount": 1,
       "objectiveCompletionRate": 0.75,
       "claimRate": 0.6667,
+      "barnObjectiveCompletionRate": 1,
+      "barnObjectiveClaimRate": 1,
       "streakAdvancementRate": 0.5
     }
   ]

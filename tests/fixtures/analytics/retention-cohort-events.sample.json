@@ -12,63 +12,72 @@
     "name": "return_objective_assigned",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-1"
+      "objectiveId": "m-1",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_assigned",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-2"
+      "objectiveId": "m-2",
+      "metric": "sell_value"
     }
   },
   {
     "event": "return_objective_assigned",
     "properties": {
       "cohort": "mobile_web",
-      "objectiveId": "m-3"
+      "objectiveId": "m-3",
+      "metric": "barn_claim_count"
     }
   },
   {
     "name": "return_objective_assigned",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-4"
+      "objectiveId": "m-4",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_completed",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-1"
+      "objectiveId": "m-1",
+      "metric": "harvest_count"
     }
   },
   {
     "event": "return_objective_completed",
     "properties": {
       "cohort": "mobile_web",
-      "objectiveId": "m-2"
+      "objectiveId": "m-2",
+      "metric": "sell_value"
     }
   },
   {
     "name": "return_objective_completed",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-3"
+      "objectiveId": "m-3",
+      "metric": "barn_claim_count"
     }
   },
   {
     "name": "return_objective_claimed",
     "payload": {
       "cohort": "mobile_web",
-      "objectiveId": "m-1"
+      "objectiveId": "m-1",
+      "metric": "harvest_count"
     }
   },
   {
     "event": "return_objective_claimed",
     "properties": {
       "cohort": "mobile_web",
-      "objectiveId": "m-2"
+      "objectiveId": "m-3",
+      "metric": "barn_claim_count"
     }
   },
   {
@@ -83,53 +92,61 @@
     "name": "return_objective_assigned",
     "payload": {
       "cohort": "desktop_web",
-      "objectiveId": "d-1"
+      "objectiveId": "d-1",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_assigned",
     "payload": {
       "cohort": "desktop_web",
-      "objectiveId": "d-2"
+      "objectiveId": "d-2",
+      "metric": "sell_value"
     }
   },
   {
     "event": "return_objective_assigned",
     "properties": {
       "cohort": "desktop_web",
-      "objectiveId": "d-3"
+      "objectiveId": "d-3",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_completed",
     "payload": {
       "cohort": "desktop_web",
-      "objectiveId": "d-1"
+      "objectiveId": "d-1",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_claimed",
     "payload": {
       "cohort": "desktop_web",
-      "objectiveId": "d-1"
+      "objectiveId": "d-1",
+      "metric": "harvest_count"
     }
   },
   {
     "name": "return_objective_assigned",
     "payload": {
-      "objectiveId": "all-1"
+      "objectiveId": "all-1",
+      "metric": "sell_value"
     }
   },
   {
     "name": "return_objective_completed",
     "payload": {
-      "objectiveId": "all-1"
+      "objectiveId": "all-1",
+      "metric": "sell_value"
     }
   },
   {
     "name": "return_objective_claimed",
     "payload": {
-      "objectiveId": "all-1"
+      "objectiveId": "all-1",
+      "metric": "sell_value"
     }
   },
   {

@@ -8,6 +8,7 @@ const RETENTION_EVENT_NAMES = new Set([
   'return_objective_claimed',
   'streak_advanced',
 ])
+const BARN_OBJECTIVE_METRIC = 'barn_claim_count'
 
 function isObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -141,15 +142,39 @@ function resolveCohort(event) {
   return 'all'
 }
 
+function resolveMetric(event) {
+  const payload = isObject(event.payload) ? event.payload : {}
+  const payloadProperties = isObject(payload.properties) ? payload.properties : {}
+  const rawProperties = isObject(event.rawEvent.properties) ? event.rawEvent.properties : {}
+  const candidates = [
+    payload.metric,
+    payloadProperties.metric,
+    rawProperties.metric,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim()
+    }
+  }
+
+  return null
+}
+
 function createCohortSummary(cohort) {
   return {
     cohort,
     objectiveAssignedCount: 0,
     objectiveCompletedCount: 0,
     objectiveClaimedCount: 0,
+    barnObjectiveAssignedCount: 0,
+    barnObjectiveCompletedCount: 0,
+    barnObjectiveClaimedCount: 0,
     streakAdvancedCount: 0,
     objectiveCompletionRate: null,
     claimRate: null,
+    barnObjectiveCompletionRate: null,
+    barnObjectiveClaimRate: null,
     streakAdvancementRate: null,
   }
 }
@@ -162,6 +187,14 @@ function summarizeBucket(bucket) {
       bucket.objectiveAssignedCount,
     ),
     claimRate: safeRate(bucket.objectiveClaimedCount, bucket.objectiveCompletedCount),
+    barnObjectiveCompletionRate: safeRate(
+      bucket.barnObjectiveCompletedCount,
+      bucket.barnObjectiveAssignedCount,
+    ),
+    barnObjectiveClaimRate: safeRate(
+      bucket.barnObjectiveClaimedCount,
+      bucket.barnObjectiveCompletedCount,
+    ),
     streakAdvancementRate: safeRate(
       bucket.streakAdvancedCount,
       bucket.objectiveClaimedCount,
@@ -180,14 +213,24 @@ export function summarizeRetentionCohorts(events) {
 
     retentionEventsProcessed += 1
     const cohort = resolveCohort(event)
+    const metric = resolveMetric(event)
     const bucket = buckets.get(cohort) ?? createCohortSummary(cohort)
 
     if (event.name === 'return_objective_assigned') {
       bucket.objectiveAssignedCount += 1
+      if (metric === BARN_OBJECTIVE_METRIC) {
+        bucket.barnObjectiveAssignedCount += 1
+      }
     } else if (event.name === 'return_objective_completed') {
       bucket.objectiveCompletedCount += 1
+      if (metric === BARN_OBJECTIVE_METRIC) {
+        bucket.barnObjectiveCompletedCount += 1
+      }
     } else if (event.name === 'return_objective_claimed') {
       bucket.objectiveClaimedCount += 1
+      if (metric === BARN_OBJECTIVE_METRIC) {
+        bucket.barnObjectiveClaimedCount += 1
+      }
     } else if (event.name === 'streak_advanced') {
       bucket.streakAdvancedCount += 1
     }
@@ -222,9 +265,14 @@ function renderTable(summary) {
     'assigned',
     'completed',
     'claimed',
+    'barn_assigned',
+    'barn_completed',
+    'barn_claimed',
     'streak_adv',
     'completion_rate',
     'claim_rate',
+    'barn_completion_rate',
+    'barn_claim_rate',
     'streak_adv_rate',
   ]
 
@@ -233,9 +281,14 @@ function renderTable(summary) {
     String(cohortSummary.objectiveAssignedCount),
     String(cohortSummary.objectiveCompletedCount),
     String(cohortSummary.objectiveClaimedCount),
+    String(cohortSummary.barnObjectiveAssignedCount),
+    String(cohortSummary.barnObjectiveCompletedCount),
+    String(cohortSummary.barnObjectiveClaimedCount),
     String(cohortSummary.streakAdvancedCount),
     formatRate(cohortSummary.objectiveCompletionRate),
     formatRate(cohortSummary.claimRate),
+    formatRate(cohortSummary.barnObjectiveCompletionRate),
+    formatRate(cohortSummary.barnObjectiveClaimRate),
     formatRate(cohortSummary.streakAdvancementRate),
   ])
 
