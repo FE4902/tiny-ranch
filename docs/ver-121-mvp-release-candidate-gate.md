@@ -76,3 +76,13 @@ Run this command as the top-level closeout gate after [VER-120](/VER/issues/VER-
 summary means the current MVP candidate has cleared the production build, bundle budget,
 core/mobile smoke, save migration, retention release, and Barn MVP gate layers. A failing summary
 keeps release signoff blocked until the failed stage passes.
+
+After this top-level gate passes, run the separate launch-shell readiness check from
+[VER-122](/VER/issues/VER-122):
+
+```bash
+npm run test:smoke:launch-shell
+```
+
+That check keeps [VER-121](/VER/issues/VER-121) as the release-candidate gate while validating the
+production page metadata, manifest/icon/share assets, and desktop/mobile preview boot path.

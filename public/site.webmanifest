@@ -1,0 +1,19 @@
+{
+  "name": "Tiny Ranch",
+  "short_name": "Tiny Ranch",
+  "description": "A cozy browser ranch game where players plant crops, care for animals, craft barn goods, and ship village orders.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#081310",
+  "theme_color": "#173c2e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

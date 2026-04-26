@@ -26,6 +26,7 @@
     "test:analytics:retention": "npm run test:retention:tuning-packs && npm run test:telemetry:retention && npm run test:analytics:retention-cohort",
     "preview": "vite preview",
     "test:smoke": "playwright test",
+    "test:smoke:launch-shell": "playwright test tests/smoke/launch-shell.spec.ts",
     "test:smoke:save-migration": "playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts",
     "test:smoke:headed": "playwright test --headed",
     "test:smoke:debug": "playwright test --debug"

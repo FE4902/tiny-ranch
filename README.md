@@ -1,6 +1,6 @@
 # Tiny Ranch
 
-Tiny Ranch is a Phaser foundation for a mobile-first ranch simulation prototype on the open web.
+Tiny Ranch is a cozy mobile-first ranch simulation game on the open web.
 
 ## Stack
 
@@ -57,6 +57,35 @@ Current suites:
 - `tests/smoke/core-loop.spec.ts`: deterministic harness-driven core loop regression on desktop + mobile.
 - `tests/smoke/touch-path.spec.ts`: mobile-only real touch-path regression that uses `page.touchscreen.tap(...)` for move -> plant -> harvest -> sell -> expansion, then verifies save persistence after reload.
 - `tests/smoke/save-migration-matrix.spec.ts`: fixture-driven save migration compatibility matrix for retention objective/streak evolution and fallback flags.
+- `tests/smoke/launch-shell.spec.ts`: production preview metadata, manifest/icon/share asset, and desktop/mobile boot readiness check.
+
+### Production launch shell validation
+
+After the unified release-candidate gate passes, validate the production shell and metadata with:
+
+```bash
+npm run test:smoke:launch-shell
+```
+
+This command uses the existing Playwright preview server path, so it builds the production bundle,
+serves Vite preview, checks desktop and mobile viewports, verifies the Tiny Ranch title,
+description, theme color, manifest, favicon/touch icon, share metadata assets, and confirms the
+game boots into the Ranch scene.
+
+Production telemetry is safe by default:
+
+- No telemetry env is required for build or boot.
+- Default: `VITE_TELEMETRY_SINK=console` emits local `tiny-ranch:telemetry` window events and
+  console lines only.
+- Disable delivery with `VITE_TELEMETRY_SINK=none`.
+- Enable PostHog delivery with `VITE_TELEMETRY_SINK=posthog` and `VITE_POSTHOG_API_KEY`.
+- Optional PostHog overrides: `VITE_POSTHOG_API_HOST`, `VITE_POSTHOG_BATCH_SIZE`,
+  `VITE_POSTHOG_FLUSH_INTERVAL_MS`, `VITE_POSTHOG_MAX_QUEUE_SIZE`.
+
+Telemetry rollback: set `VITE_TELEMETRY_SINK=none` or `console`, remove PostHog env vars from
+deployment secrets, redeploy, then rerun `npm run test:smoke:launch-shell`.
+
+For the full launch-shell checklist, see `docs/ver-122-production-launch-shell.md`.
 
 For failure triage:
 

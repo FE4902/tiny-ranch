@@ -1,13 +1,11 @@
 :root {
   --bg: #081310;
-  --bg-glow: rgba(76, 156, 106, 0.18);
-  --surface: rgba(9, 30, 22, 0.82);
-  --border: rgba(227, 214, 184, 0.12);
+  --surface: #0f281f;
+  --border: rgba(227, 214, 184, 0.18);
   --text: #f4efe3;
   --muted: #b6c8be;
   --accent: #f6bf5f;
-  --accent-soft: rgba(246, 191, 95, 0.18);
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.34);
+  --shadow: 0 18px 52px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -23,155 +21,85 @@ body {
   margin: 0;
   font-family: 'Avenir Next', 'Trebuchet MS', sans-serif;
   color: var(--text);
-  background:
-    radial-gradient(circle at top, var(--bg-glow), transparent 42%),
-    linear-gradient(180deg, #0d1f19 0%, var(--bg) 68%);
+  background: linear-gradient(180deg, #173c2e 0%, var(--bg) 72%);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-code {
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
-  font-size: 0.9rem;
-  padding: 0.18rem 0.42rem;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
 #app {
   min-height: 100svh;
 }
 
-.shell {
-  width: min(1180px, calc(100% - 32px));
+.launch-shell {
+  width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 32px 0 40px;
+  padding: 24px 0 32px;
 }
 
-.shell__hero {
-  padding: 24px 0 28px;
+.launch-shell__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.7fr);
+  gap: 24px;
+  align-items: end;
+  padding: 0 0 18px;
 }
 
-.shell__eyebrow,
-.sidebar-card__label {
+.launch-shell__eyebrow {
   margin: 0;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
   font-size: 0.72rem;
   color: var(--accent);
 }
 
-.shell h1 {
-  margin: 10px 0 12px;
+.launch-shell h1 {
+  max-width: 14em;
+  margin: 8px 0 0;
   font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
-  font-size: clamp(2.4rem, 6vw, 4.7rem);
-  line-height: 0.95;
+  font-size: clamp(2rem, 4.2vw, 3.6rem);
+  line-height: 1;
 }
 
-.shell__lede {
-  max-width: 50rem;
+.launch-shell__lede {
   margin: 0;
   color: var(--muted);
-  font-size: 1.05rem;
-  line-height: 1.65;
+  font-size: 1rem;
+  line-height: 1.55;
 }
 
-.shell__chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 20px;
-}
-
-.shell__chips span {
-  padding: 10px 14px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  border: 1px solid rgba(246, 191, 95, 0.22);
-  color: #f8ddb0;
-  font-size: 0.92rem;
-}
-
-.shell__body {
-  display: grid;
-  grid-template-columns: minmax(0, 2.1fr) minmax(280px, 0.9fr);
-  gap: 22px;
-  align-items: start;
-}
-
-.shell__stage,
-.sidebar-card {
+.launch-shell__stage {
   border: 1px solid var(--border);
   background: var(--surface);
-  backdrop-filter: blur(16px);
+  border-radius: 8px;
+  padding: 12px;
   box-shadow: var(--shadow);
-}
-
-.shell__stage {
-  border-radius: 28px;
-  padding: 18px;
-}
-
-.stage-frame {
-  position: relative;
-  border-radius: 22px;
-  overflow: hidden;
-  min-height: min(78svh, 880px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent),
-    linear-gradient(180deg, #163629 0%, #0a1813 100%);
 }
 
 .game-root {
   width: 100%;
-  height: min(78svh, 880px);
+  height: min(76svh, 840px);
+  min-height: 560px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #10241e;
 }
 
 .game-root canvas {
   display: block;
 }
 
-.shell__sidebar {
-  display: grid;
-  gap: 16px;
-}
-
-.sidebar-card {
-  border-radius: 24px;
-  padding: 22px 20px;
-}
-
-.sidebar-card__list {
-  margin: 14px 0 0;
-  padding-left: 18px;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
-.sidebar-card__text {
-  margin: 12px 0 0;
-  color: var(--muted);
-  line-height: 1.7;
-}
-
 @media (max-width: 960px) {
-  .shell {
+  .launch-shell {
     width: min(100% - 20px, 1180px);
-    padding-top: 18px;
+    padding-top: 16px;
   }
 
-  .shell__body {
+  .launch-shell__header {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
-  .shell__stage {
-    order: 2;
-    padding: 12px;
-  }
-
-  .stage-frame,
   .game-root {
     min-height: 70svh;
     height: 70svh;
@@ -179,16 +107,10 @@ code {
 }
 
 @media (max-width: 560px) {
-  .shell__hero {
-    padding-top: 10px;
+  .launch-shell {
+    width: min(100% - 16px, 1180px);
   }
 
-  .sidebar-card {
-    border-radius: 18px;
-    padding: 18px 16px;
-  }
-
-  .stage-frame,
   .game-root {
     min-height: 62svh;
     height: 62svh;
