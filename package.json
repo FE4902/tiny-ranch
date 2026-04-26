@@ -19,6 +19,7 @@
     "gate:retention:replay": "node scripts/replay-retention-gate-stage.mjs",
     "gate:barn:mvp": "node scripts/run-barn-mvp-release-gate.mjs",
     "gate:mvp:release": "node scripts/run-mvp-release-candidate-gate.mjs",
+    "release:handoff": "node scripts/run-mvp-launch-handoff.mjs",
     "test:retention:tuning-packs": "node scripts/test-retention-tuning-pack-loader.mjs",
     "test:telemetry:retention": "node scripts/validate-retention-telemetry-contract.mjs",
     "analytics:retention:cohort": "node scripts/export-retention-cohorts.mjs",

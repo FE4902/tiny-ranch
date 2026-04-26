@@ -87,6 +87,28 @@ deployment secrets, redeploy, then rerun `npm run test:smoke:launch-shell`.
 
 For the full launch-shell checklist, see `docs/ver-122-production-launch-shell.md`.
 
+### MVP launch handoff package
+
+Build the final board-readable launch handoff package with:
+
+```bash
+npm run release:handoff
+```
+
+This command runs the unified MVP release-candidate gate, runs the production launch-shell smoke,
+and writes JSON/Markdown handoff evidence under `artifacts/mvp-launch-handoff/`. The handoff
+summary links to the MVP gate, nested retention gate, nested Barn gate, and launch-shell metadata
+artifacts.
+
+If `npm run gate:mvp:release` already passed and you only need to regenerate the handoff wrapper:
+
+```bash
+npm run release:handoff -- --use-existing-gate --gate-output-dir=artifacts/mvp-release-candidate-gate
+```
+
+Go/no-go criteria, rollback commands, telemetry env requirements, and owner follow-ups are documented
+in `docs/ver-123-mvp-launch-handoff.md`.
+
 For failure triage:
 
 1. Re-run only the touch suite on mobile:
