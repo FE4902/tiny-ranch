@@ -6,6 +6,15 @@ const EXPECTED_DESCRIPTION =
   'Tiny Ranch is a cozy browser ranch game where players plant crops, care for animals, craft barn goods, and ship village orders.'
 const EXPECTED_SHARE_DESCRIPTION =
   'Plant crops, care for animals, craft barn goods, and ship village orders in a mobile-friendly browser ranch.'
+const EXPECTED_TINY_RANCH_SPRITESHEET_KEYS = [
+  'tiny-ranch-animals',
+  'tiny-ranch-characters',
+  'tiny-ranch-crops',
+  'tiny-ranch-decorations',
+  'tiny-ranch-items',
+  'tiny-ranch-structures',
+  'tiny-ranch-tiles',
+] as const
 
 type LaunchMetadata = {
   title: string
@@ -26,6 +35,22 @@ type LaunchMetadata = {
 
 type SmokeSnapshot = {
   activeScene: string | null
+}
+
+type PreloadAssetSheetSnapshot = {
+  key: string
+  loaded: boolean
+  expectedFrames: number
+  loadedFrames: number
+}
+
+type PreloadAssetSnapshot = {
+  allLoaded: boolean
+  totalSheetCount: number
+  loadedSheetCount: number
+  expectedFrameCount: number
+  loadedFrameCount: number
+  sheets: PreloadAssetSheetSnapshot[]
 }
 
 type CanvasRenderingSnapshot = {
@@ -120,6 +145,22 @@ async function getSnapshot(page: Page): Promise<SmokeSnapshot> {
   }, SMOKE_HARNESS_KEY)
 }
 
+async function getPreloadAssetSnapshot(page: Page): Promise<PreloadAssetSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getPreloadAssetSnapshot: () => PreloadAssetSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getPreloadAssetSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
 async function getCanvasRenderingSnapshot(page: Page): Promise<CanvasRenderingSnapshot> {
   return page.evaluate(() => {
     const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('#game-root canvas'))
@@ -209,6 +250,22 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
 
   const snapshot = await getSnapshot(page)
   expect(snapshot.activeScene).toBe('ranch')
+
+  const preloadAssets = await getPreloadAssetSnapshot(page)
+  expect(preloadAssets.allLoaded).toBe(true)
+  expect(preloadAssets.totalSheetCount).toBe(EXPECTED_TINY_RANCH_SPRITESHEET_KEYS.length)
+  expect(preloadAssets.loadedSheetCount).toBe(preloadAssets.totalSheetCount)
+  expect(preloadAssets.loadedFrameCount).toBe(preloadAssets.expectedFrameCount)
+  expect(preloadAssets.sheets.map((sheet) => sheet.key).sort()).toEqual(
+    [...EXPECTED_TINY_RANCH_SPRITESHEET_KEYS].sort(),
+  )
+
+  preloadAssets.sheets.forEach((sheet) => {
+    expect(sheet.loaded, `${sheet.key} should be loaded by PreloadScene`).toBe(true)
+    expect(sheet.loadedFrames, `${sheet.key} should load every expected frame`).toBe(
+      sheet.expectedFrames,
+    )
+  })
 
   const canvas = await getCanvasRenderingSnapshot(page)
   expect(canvas.canvasCount).toBe(1)

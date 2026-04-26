@@ -1,5 +1,6 @@
 import type Phaser from 'phaser'
 
+import type { TinyRanchPreloadStatusSnapshot } from '../assets/tinyRanchAssets'
 import type { BarnProcessingRecipeId } from '../config/barn'
 import type { CropSeedId } from '../config/crops'
 import { getCropSeedConfig } from '../config/crops'
@@ -215,6 +216,7 @@ interface TinyRanchSmokeHarness {
   waitForReady(timeoutMs?: number): Promise<void>
   runCoreLoopFlow(): CoreLoopRunResult
   getSnapshot(): SmokeSnapshot
+  getPreloadAssetSnapshot(): TinyRanchPreloadStatusSnapshot
   getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
   getBarnSnapshot(): BarnSnapshot
@@ -626,6 +628,18 @@ function getSnapshot(game: Phaser.Game): SmokeSnapshot {
   }
 }
 
+function getPreloadAssetSnapshot(game: Phaser.Game): TinyRanchPreloadStatusSnapshot {
+  const snapshot = game.registry.get('tiny-ranch:preload-assets') as
+    | TinyRanchPreloadStatusSnapshot
+    | undefined
+
+  if (!snapshot) {
+    throw new Error('Tiny Ranch preload asset snapshot is not available yet.')
+  }
+
+  return snapshot
+}
+
 function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot {
   const services = getGameServices(getServiceSceneOrThrow(game))
   const snapshot = services.getReturnObjectiveStateSnapshot()
@@ -850,6 +864,8 @@ export function installSmokeHarness(game: Phaser.Game): void {
     },
     runCoreLoopFlow: (): CoreLoopRunResult => runCoreLoopFlow(game),
     getSnapshot: (): SmokeSnapshot => getSnapshot(game),
+    getPreloadAssetSnapshot: (): TinyRanchPreloadStatusSnapshot =>
+      getPreloadAssetSnapshot(game),
     getReturnObjectiveSnapshot: (): ReturnObjectiveSnapshot => getReturnObjectiveSnapshot(game),
     debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
       debugClaimCurrentReturnObjective(game),

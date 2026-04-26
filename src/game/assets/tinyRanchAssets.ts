@@ -32,6 +32,31 @@ export interface TinyRanchSpritesheetDefinition {
   mvp: boolean
 }
 
+export interface TinyRanchPreloadAssetStatus {
+  key: string
+  category: TinyRanchAssetCategory
+  loaded: boolean
+  expectedFrames: number
+  loadedFrames: number
+  summary: string
+  mvp: boolean
+}
+
+export interface TinyRanchPreloadStatusSnapshot {
+  allLoaded: boolean
+  totalSheetCount: number
+  loadedSheetCount: number
+  expectedFrameCount: number
+  loadedFrameCount: number
+  sheets: TinyRanchPreloadAssetStatus[]
+}
+
+export interface TinyRanchPreloadVisualCheckFrame {
+  key: string
+  frame: number
+  category: TinyRanchAssetCategory
+}
+
 interface TinyRanchSpritesheetSeed {
   key: string
   category: TinyRanchAssetCategory
@@ -133,6 +158,29 @@ export const tinyRanchSpritesheetCount = tinyRanchSpritesheets.length
 export const tinyRanchMvpSpritesheets = tinyRanchSpritesheets.filter((sheet) => sheet.mvp)
 export const tinyRanchMvpSpritesheetCount = tinyRanchMvpSpritesheets.length
 
+export const tinyRanchPreloadVisualCheckFrames: TinyRanchPreloadVisualCheckFrame[] = [
+  {
+    key: 'tiny-ranch-tiles',
+    frame: 0,
+    category: 'tiles',
+  },
+  {
+    key: 'tiny-ranch-crops',
+    frame: 0,
+    category: 'crops',
+  },
+  {
+    key: 'tiny-ranch-items',
+    frame: 15,
+    category: 'items',
+  },
+  {
+    key: 'tiny-ranch-structures',
+    frame: 0,
+    category: 'structures',
+  },
+]
+
 export function preloadTinyRanchSpritesheets(
   scene: Scene,
   options: { mvpOnly?: boolean } = {},
@@ -147,4 +195,39 @@ export function preloadTinyRanchSpritesheets(
   })
 
   return sheetsToLoad
+}
+
+export function createTinyRanchPreloadStatusSnapshot(
+  scene: Scene,
+  sheets: TinyRanchSpritesheetDefinition[] = tinyRanchSpritesheets,
+): TinyRanchPreloadStatusSnapshot {
+  const status = sheets.map<TinyRanchPreloadAssetStatus>((sheet) => {
+    const loaded = scene.textures.exists(sheet.key)
+    const loadedFrames = loaded ? scene.textures.get(sheet.key).getFrameNames(false).length : 0
+
+    return {
+      key: sheet.key,
+      category: sheet.category,
+      loaded,
+      expectedFrames: sheet.frameCount,
+      loadedFrames,
+      summary: sheet.summary,
+      mvp: sheet.mvp,
+    }
+  })
+
+  const loadedFrameCount = status.reduce((sum, sheet) => sum + sheet.loadedFrames, 0)
+  const expectedFrameCount = sheets.reduce((sum, sheet) => sum + sheet.frameCount, 0)
+  const loadedSheetCount = status.filter(
+    (sheet) => sheet.loaded && sheet.loadedFrames >= sheet.expectedFrames,
+  ).length
+
+  return {
+    allLoaded: loadedSheetCount === sheets.length,
+    totalSheetCount: sheets.length,
+    loadedSheetCount,
+    expectedFrameCount,
+    loadedFrameCount,
+    sheets: status,
+  }
 }
