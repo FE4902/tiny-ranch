@@ -3,7 +3,9 @@ import Phaser from 'phaser'
 import { animalProductionConfigs } from '../config/animals'
 import {
   barnProcessingRecipeConfigs,
+  getBarnProcessingRecipeUnlockState,
   getBarnProcessingRecipeConfig,
+  type BarnProcessingRecipeUnlockState,
   type BarnProcessingLineItem,
   type BarnProcessingRecipeId,
 } from '../config/barn'
@@ -156,8 +158,9 @@ export interface BarnStateSnapshot {
 }
 
 export interface BarnStartJobResult {
-  result: 'started' | 'insufficient_items' | 'insufficient_funds'
+  result: 'started' | 'locked' | 'insufficient_items' | 'insufficient_funds'
   recipeId: BarnProcessingRecipeId
+  unlockState: BarnProcessingRecipeUnlockState
   missingInputs: BarnMissingInput[]
   job: BarnJobSnapshot | null
   balance: CurrencyBalance
@@ -321,6 +324,9 @@ export interface GameServices {
   getCurrencyBalance: () => CurrencyBalance
   onCurrencyChanged: (listener: CurrencyChangeListener) => () => void
   getBarnStateSnapshot: () => BarnStateSnapshot
+  getBarnRecipeUnlockState: (
+    recipeId: BarnProcessingRecipeId,
+  ) => BarnProcessingRecipeUnlockState
   startBarnJob: (recipeId: BarnProcessingRecipeId, source?: string) => BarnStartJobResult
   claimBarnJob: (jobId: string, source?: string) => BarnClaimJobResult
   onBarnStateChanged: (listener: BarnStateChangeListener) => () => void
@@ -1104,6 +1110,15 @@ export function createGameServices(
     }
   }
 
+  const getBarnRecipeUnlockState = (
+    recipeId: BarnProcessingRecipeId,
+  ): BarnProcessingRecipeUnlockState => {
+    return getBarnProcessingRecipeUnlockState(recipeId, {
+      expansionTier: readExpansionTier(),
+      upgrades: readUpgradeLevels(),
+    })
+  }
+
   const readFtueState = (): SaveFtueStateV1 => {
     const rawState = game.registry.get(FTUE_STATE_REGISTRY_KEY)
     if (!isSaveFtueState(rawState)) {
@@ -1541,6 +1556,7 @@ export function createGameServices(
     const currentInventory = readInventoryState()
     const currentBalance = readCurrencyBalance()
     const currentBarnState = reconcileProcessedBarnJobs(now)
+    const unlockState = getBarnRecipeUnlockState(recipeId)
     const missingInputs = recipe.inputs
       .map((item) => {
         const availableQuantity = currentInventory[item.itemId] ?? 0
@@ -1556,8 +1572,10 @@ export function createGameServices(
       })
       .filter((entry): entry is BarnMissingInput => entry !== null)
 
-    const startFailure =
-      missingInputs.length > 0
+    const startFailure: BarnStartJobResult['result'] | null =
+      !unlockState.isUnlocked
+        ? 'locked'
+        : missingInputs.length > 0
         ? 'insufficient_items'
         : currentBalance < recipe.fee
           ? 'insufficient_funds'
@@ -1608,6 +1626,7 @@ export function createGameServices(
       return {
         result: startFailure,
         recipeId,
+        unlockState,
         missingInputs,
         job: null,
         balance: currentBalance,
@@ -1715,6 +1734,7 @@ export function createGameServices(
     return {
       result: 'started',
       recipeId,
+      unlockState,
       missingInputs: [],
       job: buildBarnJobSnapshot(job, now),
       balance,
@@ -2650,6 +2670,7 @@ export function createGameServices(
     getCurrencyBalance,
     onCurrencyChanged,
     getBarnStateSnapshot,
+    getBarnRecipeUnlockState,
     startBarnJob,
     claimBarnJob,
     onBarnStateChanged,

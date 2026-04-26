@@ -12,6 +12,9 @@ const barnProcessingRecipeDefinitions = Object.freeze({
     description: 'Blend turnips and eggs into a richer animal feed batch.',
     durationMs: 30_000,
     fee: 4,
+    unlockRequirements: Object.freeze([
+      Object.freeze({ kind: 'expansion_tier', minTier: 2 }),
+    ]),
     inputs: Object.freeze([
       { itemId: 'turnip', quantity: 2 },
       { itemId: 'egg', quantity: 1 },
@@ -23,6 +26,10 @@ const barnProcessingRecipeDefinitions = Object.freeze({
     description: 'Card loose wool into bundled yarn stock for later sale.',
     durationMs: 60_000,
     fee: 6,
+    unlockRequirements: Object.freeze([
+      Object.freeze({ kind: 'expansion_tier', minTier: 3 }),
+      Object.freeze({ kind: 'upgrade_level', upgradeId: 'market_ledger', minLevel: 1 }),
+    ]),
     inputs: Object.freeze([{ itemId: 'wool', quantity: 2 }]),
     outputs: Object.freeze([{ itemId: 'yarn', quantity: 1 }]),
   }),

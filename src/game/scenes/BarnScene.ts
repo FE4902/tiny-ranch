@@ -3,6 +3,7 @@ import Phaser from 'phaser'
 import {
   barnProcessingRecipeIds,
   getBarnProcessingRecipeConfig,
+  type BarnProcessingRecipeUnlockState,
   type BarnProcessingLineItem,
   type BarnProcessingRecipeId,
 } from '../config/barn'
@@ -54,6 +55,8 @@ export class BarnScene extends BasePlayScene {
   private claimButton?: TextButton
   private unsubscribeInventoryChanges?: () => void
   private unsubscribeBarnChanges?: () => void
+  private unsubscribeExpansionChanges?: () => void
+  private unsubscribeUpgradeChanges?: () => void
   private refreshTimer?: Phaser.Time.TimerEvent
 
   private readonly resizeBarnUi = (): void => {
@@ -115,6 +118,8 @@ export class BarnScene extends BasePlayScene {
     const services = getGameServices(this)
     this.unsubscribeInventoryChanges = services.onInventoryChanged(() => this.refreshBarnUi())
     this.unsubscribeBarnChanges = services.onBarnStateChanged(() => this.refreshBarnUi())
+    this.unsubscribeExpansionChanges = services.onExpansionStateChanged(() => this.refreshBarnUi())
+    this.unsubscribeUpgradeChanges = services.onUpgradeStateChanged(() => this.refreshBarnUi())
     this.refreshTimer = this.time.addEvent({
       delay: READY_POLL_INTERVAL_MS,
       loop: true,
@@ -143,6 +148,8 @@ export class BarnScene extends BasePlayScene {
       this.input.keyboard?.off('keydown-E', handleClaimReadyHotkey)
       this.unsubscribeInventoryChanges?.()
       this.unsubscribeBarnChanges?.()
+      this.unsubscribeExpansionChanges?.()
+      this.unsubscribeUpgradeChanges?.()
       this.refreshTimer?.destroy()
     })
 
@@ -186,6 +193,15 @@ export class BarnScene extends BasePlayScene {
     if (result.result === 'started') {
       this.feedbackText.setColor('#8dd6a0')
       this.feedbackText.setText(`${recipe.label} started.`)
+      this.refreshBarnUi()
+      return
+    }
+
+    if (result.result === 'locked') {
+      this.feedbackText.setColor('#ff9f7a')
+      this.feedbackText.setText(
+        `${recipe.label} locked. ${this.formatLockedReason(result.unlockState)}.`,
+      )
       this.refreshBarnUi()
       return
     }
@@ -256,10 +272,11 @@ export class BarnScene extends BasePlayScene {
     const inventory = services.getInventorySnapshot()
     const barnState = services.getBarnStateSnapshot()
     const selectedRecipe = getBarnProcessingRecipeConfig(this.selectedRecipeId)
+    const unlockState = services.getBarnRecipeUnlockState(this.selectedRecipeId)
     const readyJobCount = barnState.jobs.filter((job) => job.isReady).length
 
     this.cycleRecipeButton.setSelected(false)
-    this.startRecipeButton.setSelected(true)
+    this.startRecipeButton.setSelected(unlockState.isUnlocked)
     this.claimButton.setSelected(readyJobCount > 0)
     this.inventoryText.setText(
       [
@@ -281,6 +298,9 @@ export class BarnScene extends BasePlayScene {
     this.recipeDetailText.setText(
       [
         `${selectedRecipe.label} (${barnProcessingRecipeIds.indexOf(this.selectedRecipeId) + 1}/${barnProcessingRecipeIds.length})`,
+        unlockState.isUnlocked
+          ? 'Status Unlocked'
+          : `Status Locked: ${this.formatLockedReason(unlockState)}`,
         `Input ${this.formatLineItems(selectedRecipe.inputs)}`,
         `Output ${this.formatLineItems(selectedRecipe.outputs)}`,
         `Fee ${selectedRecipe.fee} coin${selectedRecipe.fee === 1 ? '' : 's'}`,
@@ -357,6 +377,10 @@ export class BarnScene extends BasePlayScene {
 
   private formatInventoryLine(itemId: string, quantity: number): string {
     return `${this.formatItemLabel(itemId)} x${quantity}`
+  }
+
+  private formatLockedReason(unlockState: BarnProcessingRecipeUnlockState): string {
+    return unlockState.lockedReason ?? 'Progress further to unlock this recipe'
   }
 
   private formatLineItems(items: readonly BarnProcessingLineItem[]): string {

@@ -284,6 +284,46 @@ async function makeFirstBarnJobReady(page: Page): Promise<void> {
   }, SAVE_STORAGE_KEY)
 }
 
+async function unlockFeedMixThroughSavedProgression(page: Page): Promise<void> {
+  await page.evaluate((storageKey: string) => {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) {
+      throw new Error('Expected persisted save payload before promoting Barn recipe progression.')
+    }
+
+    const payload = JSON.parse(raw) as {
+      metadata?: {
+        savedAtEpochMs?: number
+      }
+      currency?: number
+      inventory?: Record<string, number>
+      progression?: {
+        activeScene?: string | null
+        expansionTier?: number
+      }
+    }
+
+    if (!payload.metadata) {
+      payload.metadata = {}
+    }
+    if (!payload.inventory) {
+      payload.inventory = {}
+    }
+    if (!payload.progression) {
+      throw new Error('Expected persisted progression state before promoting Barn recipe unlock.')
+    }
+
+    payload.metadata.savedAtEpochMs = Date.now()
+    payload.currency = Math.max(payload.currency ?? 0, 4)
+    payload.inventory.turnip = Math.max(payload.inventory.turnip ?? 0, 2)
+    payload.inventory.egg = Math.max(payload.inventory.egg ?? 0, 1)
+    payload.progression.activeScene = 'barn'
+    payload.progression.expansionTier = 2
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
+  }, SAVE_STORAGE_KEY)
+}
+
 test('desktop Barn scene keeps keyboard parity for recipe start and claim after reload', async ({
   page,
 }, testInfo) => {
@@ -508,4 +548,76 @@ test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy 
   expect(processedPayload.eventTimestampMs).toBe(processedPayload.processedAtEpochMs)
   expect(claimedPayload.processedAtEpochMs).toBe(processedPayload.processedAtEpochMs)
   expect(claimedPayload.claimedAtEpochMs).toBe(claimedPayload.eventTimestampMs)
+})
+
+test('mobile Barn locked recipe feedback unlocks through expansion progression', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'mobile-chromium', 'Locked Barn UX smoke runs only for mobile.')
+
+  await launchSmokeSession(page)
+  await debugNavigate(page, 'barn')
+
+  await expect
+    .poll(async () => (await getSnapshot(page)).activeScene, {
+      timeout: 5_000,
+      message: 'Expected Barn scene to become active before locked recipe checks.',
+    })
+    .toBe('barn')
+
+  await tapBarnButton(page, 'cycleRecipeButtonCenter')
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).selectedRecipeId, {
+      timeout: 5_000,
+      message: 'Expected Barn recipe cycle to select the configured locked recipe.',
+    })
+    .toBe('feed_mix')
+
+  const lockedUi = await getBarnUiSnapshot(page)
+  expect(lockedUi.recipeDetailText).toContain('Status Locked')
+  expect(lockedUi.recipeDetailText).toContain('Reach Market Expansion (Tier 2)')
+
+  await tapBarnButton(page, 'startRecipeButtonCenter')
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).feedbackText, {
+      timeout: 5_000,
+      message: 'Expected locked recipe start to explain the configured unlock requirement.',
+    })
+    .toBe('Feed Mix locked. Reach Market Expansion (Tier 2).')
+
+  expect((await getBarnSnapshot(page)).jobs).toHaveLength(0)
+
+  await unlockFeedMixThroughSavedProgression(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+  expect((await getSnapshot(page)).activeScene).toBe('barn')
+
+  await tapBarnButton(page, 'cycleRecipeButtonCenter')
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).selectedRecipeId, {
+      timeout: 5_000,
+      message: 'Expected Barn recipe cycle to reselect feed mix after progression unlock.',
+    })
+    .toBe('feed_mix')
+
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).recipeDetailText, {
+      timeout: 5_000,
+      message: 'Expected feed mix to become available after saved expansion progression.',
+    })
+    .toContain('Status Unlocked')
+
+  await tapBarnButton(page, 'startRecipeButtonCenter')
+  await expect
+    .poll(async () => (await getBarnSnapshot(page)).jobs.length, {
+      timeout: 5_000,
+      message: 'Expected unlocked feed mix to queue after mobile touch start.',
+    })
+    .toBe(1)
+
+  const unlockedSnapshot = await getBarnSnapshot(page)
+  expect(unlockedSnapshot.jobs[0]?.recipeId).toBe('feed_mix')
+  expect(unlockedSnapshot.inventory.turnip ?? 0).toBe(0)
+  expect(unlockedSnapshot.inventory.egg ?? 0).toBe(0)
+  expect(unlockedSnapshot.balance).toBe(0)
 })

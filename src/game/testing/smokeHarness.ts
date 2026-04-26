@@ -122,7 +122,7 @@ interface BarnSnapshot {
 }
 
 interface BarnStartDebugResult {
-  result: 'started' | 'insufficient_items' | 'insufficient_funds'
+  result: 'started' | 'locked' | 'insufficient_items' | 'insufficient_funds'
   jobId: string | null
   balance: number
   jobCount: number
