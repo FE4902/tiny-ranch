@@ -7,6 +7,7 @@ const SMOKE_HARNESS_KEY = '__TINY_RANCH_SMOKE__'
 type SmokeSnapshot = {
   activeScene: string | null
   currency: number
+  inventory: Record<string, number>
   expansionTier: number
   nextExpansionCost: number | null
   ranchCropCount: number
@@ -56,6 +57,32 @@ type ReturnObjectiveClaimDebugResult = {
   awardedRewardAmount: number
   awardedStreakTier: number
   assignmentCycleAfterClaim: number
+}
+
+type ScreenPoint = {
+  x: number
+  y: number
+}
+
+type PersistedCropState = {
+  seedId: string
+  tileX: number
+  tileY: number
+  plantedAtEpochMs: number
+  stageIndex: number
+}
+
+type PersistedSavePayload = {
+  schemaVersion: number
+  metadata: {
+    savedAtEpochMs: number
+  }
+  currency: number
+  inventory: Record<string, number>
+  ranch: {
+    crops: PersistedCropState[]
+    animals: unknown[]
+  }
 }
 
 type SmokeLaunchOptions = {
@@ -224,6 +251,155 @@ async function persistLegacySaveWithoutStreak(page: Page): Promise<void> {
     harness.debugPersistLegacySaveWithoutStreak()
   }, SMOKE_HARNESS_KEY)
 }
+
+async function getTileScreenPoint(page: Page, tileX: number, tileY: number): Promise<ScreenPoint> {
+  return page.evaluate(
+    ({ harnessKey, x, y }) => {
+      const key = harnessKey as keyof Window
+      const harness = window[key] as
+        | {
+            getTileScreenPoint: (tileX: number, tileY: number) => ScreenPoint
+          }
+        | undefined
+      if (!harness) {
+        throw new Error('Smoke harness is not available on window.')
+      }
+
+      return harness.getTileScreenPoint(x, y)
+    },
+    { harnessKey: SMOKE_HARNESS_KEY, x: tileX, y: tileY },
+  )
+}
+
+async function getPlantedCropTiles(page: Page): Promise<Array<{ x: number; y: number }>> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugGetPlantedCropTiles: () => Array<{ x: number; y: number }>
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.debugGetPlantedCropTiles()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function seedInventory(page: Page, itemId: string, quantity: number): Promise<void> {
+  await page.evaluate(
+    ({ harnessKey, targetItemId, targetQuantity }) => {
+      const key = harnessKey as keyof Window
+      const harness = window[key] as
+        | {
+            debugSeedInventory: (itemId: string, quantity: number) => void
+          }
+        | undefined
+      if (!harness) {
+        throw new Error('Smoke harness is not available on window.')
+      }
+
+      harness.debugSeedInventory(targetItemId, targetQuantity)
+    },
+    { harnessKey: SMOKE_HARNESS_KEY, targetItemId: itemId, targetQuantity: quantity },
+  )
+}
+
+async function grantCoins(page: Page, amount: number): Promise<number> {
+  return page.evaluate(
+    ({ harnessKey, coinAmount }) => {
+      const key = harnessKey as keyof Window
+      const harness = window[key] as
+        | {
+            debugGrantCoins: (amount: number) => number
+          }
+        | undefined
+      if (!harness) {
+        throw new Error('Smoke harness is not available on window.')
+      }
+
+      return harness.debugGrantCoins(coinAmount)
+    },
+    { harnessKey: SMOKE_HARNESS_KEY, coinAmount: amount },
+  )
+}
+
+async function debugSaveGameState(page: Page): Promise<void> {
+  await page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugSaveGameState: () => unknown
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    harness.debugSaveGameState()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function readRawSavedPayload(page: Page): Promise<PersistedSavePayload> {
+  return page.evaluate(() => {
+    const raw = window.localStorage.getItem('tiny-ranch:save-state')
+    if (raw === null) {
+      throw new Error('Expected local save payload to exist.')
+    }
+
+    return JSON.parse(raw) as PersistedSavePayload
+  })
+}
+
+test('local save persists planted crops, inventory, and coins across reload', async ({ page }) => {
+  await launchSmokeSession(page)
+
+  const cropPoint = await getTileScreenPoint(page, 3, 10)
+  await page.mouse.click(cropPoint.x, cropPoint.y)
+
+  await expect
+    .poll(async () => (await getSnapshot(page)).ranchCropCount, {
+      timeout: 5_000,
+      message: 'Expected crop count to increase after planting.',
+    })
+    .toBe(1)
+
+  await seedInventory(page, 'turnip', 2)
+  const coinBalance = await grantCoins(page, 37)
+  expect(coinBalance).toBe(37)
+
+  const plantedBeforeReload = await getPlantedCropTiles(page)
+  expect(plantedBeforeReload).toEqual([{ x: 3, y: 10 }])
+
+  await debugSaveGameState(page)
+  const savedBeforeReload = await readRawSavedPayload(page)
+  expect(savedBeforeReload.schemaVersion).toBe(1)
+  expect(typeof savedBeforeReload.metadata.savedAtEpochMs).toBe('number')
+  expect(savedBeforeReload.currency).toBe(37)
+  expect(savedBeforeReload.inventory.turnip).toBe(2)
+  expect(savedBeforeReload.ranch.crops).toEqual([
+    expect.objectContaining({
+      seedId: 'turnip',
+      tileX: 3,
+      tileY: 10,
+      stageIndex: 0,
+    }),
+  ])
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const reloadedSnapshot = await getSnapshot(page)
+  expect(reloadedSnapshot.activeScene).toBe('ranch')
+  expect(reloadedSnapshot.currency).toBe(37)
+  expect(reloadedSnapshot.inventory.turnip).toBe(2)
+  expect(reloadedSnapshot.ranchCropCount).toBe(1)
+  expect(reloadedSnapshot.saveStateExists).toBe(true)
+
+  const plantedAfterReload = await getPlantedCropTiles(page)
+  expect(plantedAfterReload).toEqual(plantedBeforeReload)
+})
 
 test('launch -> plant -> harvest -> sell -> expansion -> reload save', async ({ page }, testInfo) => {
   await launchSmokeSession(page)
