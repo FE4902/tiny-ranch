@@ -1,3 +1,6 @@
+import type { BarnProcessingRecipeId } from './barn'
+import type { RanchZoneId } from '../maps/ranchMap'
+
 export type FtueProgressSignal = 'plant' | 'grow' | 'harvest' | 'sell'
 
 const FTUE_STEPS = [
@@ -41,12 +44,40 @@ export interface FtueStepConfig {
   completionSignal: FtueProgressSignal
 }
 
+export interface FtueBarnHandoffConfig {
+  enabledByDefault: boolean
+  id: string
+  targetRecipeId: BarnProcessingRecipeId
+  requiredZoneId: RanchZoneId
+  title: string
+  lockedHint: string
+  missingInputHint: string
+  readyHint: string
+  completedHint: string
+  touchOpenBarnHint: string
+  keyboardOpenBarnHint: string
+}
+
 export const ftueConfig: Readonly<{
   enabledByDefault: boolean
   steps: readonly FtueStepConfig[]
+  barnHandoff: FtueBarnHandoffConfig
 }> = {
   enabledByDefault: true,
   steps: FTUE_STEPS,
+  barnHandoff: {
+    enabledByDefault: true,
+    id: 'first_cheese_press',
+    targetRecipeId: 'cheese_press',
+    requiredZoneId: 'barn_entry',
+    title: 'Start your first Barn batch.',
+    lockedHint: 'Expand until the Barn opens.',
+    missingInputHint: 'Gather the recipe inputs first.',
+    readyHint: 'Open the Barn and start the batch.',
+    completedHint: 'Barn handoff complete.',
+    touchOpenBarnHint: 'Tap 2 Barn, then Start.',
+    keyboardOpenBarnHint: 'Press 2 for Barn, then W to start.',
+  },
 }
 
 export function isFtueStepId(value: unknown): value is FtueStepId {

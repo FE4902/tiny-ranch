@@ -455,12 +455,32 @@ export class UiScene extends Phaser.Scene {
       }
     }
 
+    const refreshBarnButtonIntent = (): void => {
+      const handoff = services.getBarnHandoffStateSnapshot()
+      const barnState = services.getBarnStateSnapshot()
+      const hasReadyBarnAction =
+        barnState.jobs.some((job) => job.isReady) ||
+        barnState.marketOrders.some((order) => order.isClaimable)
+      const shouldSignalBarn =
+        hasReadyBarnAction ||
+        handoff.canStart ||
+        (handoff.isVisible && handoff.nextAction !== 'unlock_barn')
+
+      barnButton.setLabel(shouldSignalBarn ? '2 Barn!' : '2 Barn')
+    }
+
     layout()
     setSelectedScene(services.getActiveScene() ?? SCENE_KEYS.ranch)
+    refreshBarnButtonIntent()
     this.showReturnSessionSummaryModal()
 
     this.scale.on(Phaser.Scale.Events.RESIZE, layout)
     this.game.events.on('tiny-ranch:scene-changed', setSelectedScene)
+    const unsubscribeBarnChanges = services.onBarnStateChanged(refreshBarnButtonIntent)
+    const unsubscribeInventoryChanges = services.onInventoryChanged(refreshBarnButtonIntent)
+    const unsubscribeCurrencyChanges = services.onCurrencyChanged(refreshBarnButtonIntent)
+    const unsubscribeExpansionChanges = services.onExpansionStateChanged(refreshBarnButtonIntent)
+    const unsubscribeFtueChanges = services.onFtueStateChanged(refreshBarnButtonIntent)
 
     const handleRanchHotkey = (): void => services.navigate(SCENE_KEYS.ranch)
     const handleBarnHotkey = (): void => services.navigate(SCENE_KEYS.barn)
@@ -482,6 +502,11 @@ export class UiScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, layout)
       this.game.events.off('tiny-ranch:scene-changed', setSelectedScene)
+      unsubscribeBarnChanges()
+      unsubscribeInventoryChanges()
+      unsubscribeCurrencyChanges()
+      unsubscribeExpansionChanges()
+      unsubscribeFtueChanges()
       this.input.keyboard?.off('keydown-ONE', handleRanchHotkey)
       this.input.keyboard?.off('keydown-TWO', handleBarnHotkey)
       if (debugSaveResetEnabled) {

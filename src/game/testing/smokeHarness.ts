@@ -7,7 +7,7 @@ import { getItemSellPrice } from '../config/economy'
 import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
 import type { BarnScene, BarnSceneDebugUiSnapshot } from '../scenes/BarnScene'
-import type { RanchScene } from '../scenes/RanchScene'
+import type { RanchScene, RanchSceneDebugUiSnapshot } from '../scenes/RanchScene'
 import type { UiScene, UiSceneDebugReturnSessionSummaryModalSnapshot } from '../scenes/UiScene'
 import { getGameServices } from '../systems/runtime'
 
@@ -91,6 +91,7 @@ interface ReturnObjectiveSnapshot {
   retentionKillSwitchEnabled: boolean
   activeObjectiveId: string | null
   metric: 'harvest_count' | 'sell_value' | 'barn_claim_count' | null
+  barnRecipeId: string | null
   progressValue: number
   targetValue: number
   rewardAmount: number
@@ -132,6 +133,36 @@ interface BarnSnapshot {
   marketOrders: BarnMarketOrderSnapshot[]
 }
 
+interface BarnHandoffSnapshot {
+  enabled: boolean
+  handoffId: string | null
+  targetRecipeId: string | null
+  targetRecipeLabel: string | null
+  requiredZoneId: string | null
+  requiredZoneUnlocked: boolean
+  isVisible: boolean
+  isCompleted: boolean
+  completedAtEpochMs: number | null
+  activeJobCount: number
+  readyJobCount: number
+  missingInputs: Array<{
+    itemId: string
+    requiredQuantity: number
+    availableQuantity: number
+  }>
+  missingCoins: number
+  canStart: boolean
+  nextAction:
+    | 'complete_ftue'
+    | 'unlock_barn'
+    | 'gather_inputs'
+    | 'earn_coins'
+    | 'start_recipe'
+    | 'wait_for_completion'
+    | 'claim_output'
+    | 'completed'
+}
+
 interface BarnStartDebugResult {
   result: 'started' | 'locked' | 'insufficient_items' | 'insufficient_funds'
   jobId: string | null
@@ -164,6 +195,15 @@ interface BarnUiSnapshot {
   shipOrdersButtonCenter: ScreenPoint | null
 }
 
+interface RanchUiSnapshot {
+  ftueObjectiveVisible: boolean
+  ftueObjectiveText: string
+  returnObjectiveVisible: boolean
+  returnObjectiveText: string
+  returnObjectiveClaimButtonVisible: boolean
+  returnObjectiveClaimButtonText: string
+}
+
 interface ReturnSessionSummaryModalSnapshot {
   isVisible: boolean
   titleText: string
@@ -178,6 +218,8 @@ interface TinyRanchSmokeHarness {
   getReturnObjectiveSnapshot(): ReturnObjectiveSnapshot
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
   getBarnSnapshot(): BarnSnapshot
+  getBarnHandoffSnapshot(): BarnHandoffSnapshot
+  getRanchUiSnapshot(): RanchUiSnapshot
   getBarnUiSnapshot(): BarnUiSnapshot
   getReturnSessionSummaryModalSnapshot(): ReturnSessionSummaryModalSnapshot
   debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
@@ -594,6 +636,7 @@ function getReturnObjectiveSnapshot(game: Phaser.Game): ReturnObjectiveSnapshot 
     retentionKillSwitchEnabled: snapshot.retentionKillSwitchEnabled,
     activeObjectiveId: snapshot.activeObjectiveId,
     metric: snapshot.metric,
+    barnRecipeId: snapshot.barnRecipeId,
     progressValue: snapshot.progressValue,
     targetValue: snapshot.targetValue,
     rewardAmount: snapshot.rewardAmount,
@@ -664,6 +707,33 @@ function getBarnSnapshot(game: Phaser.Game): BarnSnapshot {
   }
 }
 
+function getBarnHandoffSnapshot(game: Phaser.Game): BarnHandoffSnapshot {
+  const services = getGameServices(getServiceSceneOrThrow(game))
+  const snapshot = services.getBarnHandoffStateSnapshot()
+
+  return {
+    enabled: snapshot.enabled,
+    handoffId: snapshot.handoffId,
+    targetRecipeId: snapshot.targetRecipeId,
+    targetRecipeLabel: snapshot.targetRecipeLabel,
+    requiredZoneId: snapshot.requiredZoneId,
+    requiredZoneUnlocked: snapshot.requiredZoneUnlocked,
+    isVisible: snapshot.isVisible,
+    isCompleted: snapshot.isCompleted,
+    completedAtEpochMs: snapshot.completedAtEpochMs,
+    activeJobCount: snapshot.activeJobCount,
+    readyJobCount: snapshot.readyJobCount,
+    missingInputs: snapshot.missingInputs.map((item) => ({
+      itemId: item.itemId,
+      requiredQuantity: item.requiredQuantity,
+      availableQuantity: item.availableQuantity,
+    })),
+    missingCoins: snapshot.missingCoins,
+    canStart: snapshot.canStart,
+    nextAction: snapshot.nextAction,
+  }
+}
+
 function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
   const scene = getBarnSceneOrThrow(game)
   const snapshot: BarnSceneDebugUiSnapshot = scene.getDebugUiSnapshot()
@@ -678,6 +748,20 @@ function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
     startRecipeButtonCenter: snapshot.startRecipeButtonCenter,
     claimButtonCenter: snapshot.claimButtonCenter,
     shipOrdersButtonCenter: snapshot.shipOrdersButtonCenter,
+  }
+}
+
+function getRanchUiSnapshot(game: Phaser.Game): RanchUiSnapshot {
+  const scene = getRanchSceneOrThrow(game)
+  const snapshot: RanchSceneDebugUiSnapshot = scene.getDebugUiSnapshot()
+
+  return {
+    ftueObjectiveVisible: snapshot.ftueObjectiveVisible,
+    ftueObjectiveText: snapshot.ftueObjectiveText,
+    returnObjectiveVisible: snapshot.returnObjectiveVisible,
+    returnObjectiveText: snapshot.returnObjectiveText,
+    returnObjectiveClaimButtonVisible: snapshot.returnObjectiveClaimButtonVisible,
+    returnObjectiveClaimButtonText: snapshot.returnObjectiveClaimButtonText,
   }
 }
 
@@ -770,6 +854,8 @@ export function installSmokeHarness(game: Phaser.Game): void {
     debugClaimCurrentReturnObjective: (): ReturnObjectiveClaimDebugResult =>
       debugClaimCurrentReturnObjective(game),
     getBarnSnapshot: (): BarnSnapshot => getBarnSnapshot(game),
+    getBarnHandoffSnapshot: (): BarnHandoffSnapshot => getBarnHandoffSnapshot(game),
+    getRanchUiSnapshot: (): RanchUiSnapshot => getRanchUiSnapshot(game),
     getBarnUiSnapshot: (): BarnUiSnapshot => getBarnUiSnapshot(game),
     getReturnSessionSummaryModalSnapshot: (): ReturnSessionSummaryModalSnapshot =>
       getReturnSessionSummaryModalSnapshot(game),

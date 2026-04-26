@@ -49,6 +49,7 @@ type ReturnObjectiveSnapshot = {
   retentionKillSwitchEnabled: boolean
   activeObjectiveId: string | null
   metric: 'harvest_count' | 'sell_value' | 'barn_claim_count' | null
+  barnRecipeId?: string | null
   progressValue: number
   targetValue: number
   rewardAmount: number
@@ -64,6 +65,57 @@ type ReturnObjectiveClaimDebugResult = {
   awardedRewardAmount: number
   awardedStreakTier: number
   assignmentCycleAfterClaim: number
+}
+
+type CoreLoopRunResult = {
+  launchScene: string | null
+  planted: boolean
+  harvested: boolean
+  sold: boolean
+  expansionPurchased: boolean
+  currencyAfterSale: number
+  currencyAfterPurchase: number
+  expansionTierAfterPurchase: number
+  persistedExpansionTier: number | null
+}
+
+type BarnHandoffSnapshot = {
+  enabled: boolean
+  handoffId: string | null
+  targetRecipeId: string | null
+  targetRecipeLabel: string | null
+  requiredZoneId: string | null
+  requiredZoneUnlocked: boolean
+  isVisible: boolean
+  isCompleted: boolean
+  completedAtEpochMs: number | null
+  activeJobCount: number
+  readyJobCount: number
+  missingInputs: Array<{
+    itemId: string
+    requiredQuantity: number
+    availableQuantity: number
+  }>
+  missingCoins: number
+  canStart: boolean
+  nextAction:
+    | 'complete_ftue'
+    | 'unlock_barn'
+    | 'gather_inputs'
+    | 'earn_coins'
+    | 'start_recipe'
+    | 'wait_for_completion'
+    | 'claim_output'
+    | 'completed'
+}
+
+type RanchUiSnapshot = {
+  ftueObjectiveVisible: boolean
+  ftueObjectiveText: string
+  returnObjectiveVisible: boolean
+  returnObjectiveText: string
+  returnObjectiveClaimButtonVisible: boolean
+  returnObjectiveClaimButtonText: string
 }
 
 type ReturnSessionSummaryModalSnapshot = {
@@ -125,6 +177,22 @@ async function debugSeedInventory(page: Page, itemId: string, quantity: number):
   )
 }
 
+async function runCoreLoopFlow(page: Page): Promise<CoreLoopRunResult> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          runCoreLoopFlow: () => CoreLoopRunResult
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.runCoreLoopFlow()
+  }, SMOKE_HARNESS_KEY)
+}
+
 async function getBarnSnapshot(page: Page): Promise<BarnSnapshot> {
   return page.evaluate((harnessKey: string) => {
     const key = harnessKey as keyof Window
@@ -138,6 +206,38 @@ async function getBarnSnapshot(page: Page): Promise<BarnSnapshot> {
     }
 
     return harness.getBarnSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function getBarnHandoffSnapshot(page: Page): Promise<BarnHandoffSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getBarnHandoffSnapshot: () => BarnHandoffSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getBarnHandoffSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function getRanchUiSnapshot(page: Page): Promise<RanchUiSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getRanchUiSnapshot: () => RanchUiSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getRanchUiSnapshot()
   }, SMOKE_HARNESS_KEY)
 }
 
@@ -328,6 +428,48 @@ async function backdateFirstBarnJobSave(page: Page, elapsedMs: number): Promise<
   )
 }
 
+async function promoteSaveToBarnReadyHandoff(page: Page): Promise<void> {
+  await page.evaluate((storageKey: string) => {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) {
+      throw new Error('Expected persisted save payload before promoting Barn handoff.')
+    }
+
+    const payload = JSON.parse(raw) as {
+      inventory?: Record<string, number>
+      progression?: {
+        activeScene?: string | null
+        expansionTier?: number
+      }
+      ftue?: {
+        currentStep?: string | null
+        completedAtEpochMs?: number | null
+        barnHandoff?: {
+          completedAtEpochMs: number | null
+        }
+      }
+    }
+
+    if (!payload.progression || !payload.ftue) {
+      throw new Error('Expected progression and FTUE state before promoting Barn handoff.')
+    }
+
+    payload.inventory = {
+      ...(payload.inventory ?? {}),
+      milk: 2,
+    }
+    payload.progression.activeScene = 'ranch'
+    payload.progression.expansionTier = 3
+    payload.ftue.currentStep = null
+    payload.ftue.completedAtEpochMs = payload.ftue.completedAtEpochMs ?? Date.now()
+    payload.ftue.barnHandoff = {
+      completedAtEpochMs: null,
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
+  }, SAVE_STORAGE_KEY)
+}
+
 async function readRawSavePayload(page: Page): Promise<Record<string, unknown> | null> {
   return page.evaluate((storageKey: string) => {
     const raw = window.localStorage.getItem(storageKey)
@@ -379,6 +521,76 @@ test('legacy save without barn state hydrates to an empty barn queue and resaves
       { orderId: 'weaver_contract', fulfilledAtEpochMs: null },
     ],
   })
+})
+
+test('first-run Barn handoff surfaces a reachable Cheese Press start and persists completion', async ({
+  page,
+}) => {
+  await launchSmokeSession(page)
+
+  const initialHandoff = await getBarnHandoffSnapshot(page)
+  expect(initialHandoff.enabled).toBe(true)
+  expect(initialHandoff.targetRecipeId).toBe('cheese_press')
+  expect(initialHandoff.isVisible).toBe(false)
+  expect(initialHandoff.nextAction).toBe('complete_ftue')
+
+  const coreLoopResult = await runCoreLoopFlow(page)
+  expect(coreLoopResult.sold).toBe(true)
+  expect(coreLoopResult.expansionPurchased).toBe(true)
+
+  const lockedHandoff = await getBarnHandoffSnapshot(page)
+  expect(lockedHandoff.isVisible).toBe(true)
+  expect(lockedHandoff.requiredZoneId).toBe('barn_entry')
+  expect(lockedHandoff.requiredZoneUnlocked).toBe(false)
+  expect(lockedHandoff.nextAction).toBe('unlock_barn')
+
+  const lockedRanchUi = await getRanchUiSnapshot(page)
+  expect(lockedRanchUi.ftueObjectiveVisible).toBe(true)
+  expect(lockedRanchUi.ftueObjectiveText).toContain('Barn objective')
+  expect(lockedRanchUi.ftueObjectiveText).toContain('Expand until the Barn opens.')
+
+  await promoteSaveToBarnReadyHandoff(page)
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const readyHandoff = await getBarnHandoffSnapshot(page)
+  expect(readyHandoff.isVisible).toBe(true)
+  expect(readyHandoff.requiredZoneUnlocked).toBe(true)
+  expect(readyHandoff.canStart).toBe(true)
+  expect(readyHandoff.nextAction).toBe('start_recipe')
+  expect(readyHandoff.missingInputs).toHaveLength(0)
+
+  const readyRanchUi = await getRanchUiSnapshot(page)
+  expect(readyRanchUi.ftueObjectiveText).toContain('Open the Barn and start the batch.')
+
+  const startResult = await debugStartBarnJob(page, 'cheese_press')
+  expect(startResult.result).toBe('started')
+  expect(startResult.jobCount).toBe(1)
+
+  const completedHandoff = await getBarnHandoffSnapshot(page)
+  expect(completedHandoff.isCompleted).toBe(true)
+  expect(completedHandoff.isVisible).toBe(false)
+  expect(completedHandoff.completedAtEpochMs).not.toBeNull()
+
+  const rawSave = await readRawSavePayload(page)
+  const persistedHandoff = (
+    rawSave?.ftue as
+      | {
+          barnHandoff?: {
+            completedAtEpochMs?: number | null
+          }
+        }
+      | undefined
+  )?.barnHandoff
+  expect(persistedHandoff?.completedAtEpochMs).toBe(completedHandoff.completedAtEpochMs)
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const reloadedHandoff = await getBarnHandoffSnapshot(page)
+  expect(reloadedHandoff.isCompleted).toBe(true)
+  expect(reloadedHandoff.isVisible).toBe(false)
+  expect(reloadedHandoff.completedAtEpochMs).toBe(completedHandoff.completedAtEpochMs)
 })
 
 test('barn jobs survive reload, become claimable, and persist their outputs', async ({ page }) => {

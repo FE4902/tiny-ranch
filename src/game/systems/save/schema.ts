@@ -66,6 +66,11 @@ export type SaveUpgradeLevelsV1 = Record<UpgradeId, number>
 export interface SaveFtueStateV1 {
   currentStep: FtueStepId | null
   completedAtEpochMs: number | null
+  barnHandoff: SaveFtueBarnHandoffStateV1
+}
+
+export interface SaveFtueBarnHandoffStateV1 {
+  completedAtEpochMs: number | null
 }
 
 export interface SaveReturnObjectiveStateV1 {
@@ -345,6 +350,13 @@ export function createDefaultFtueSaveState(): SaveFtueStateV1 {
   return {
     currentStep: getFirstFtueStepId(),
     completedAtEpochMs: null,
+    barnHandoff: createDefaultFtueBarnHandoffSaveState(),
+  }
+}
+
+export function createDefaultFtueBarnHandoffSaveState(): SaveFtueBarnHandoffStateV1 {
+  return {
+    completedAtEpochMs: null,
   }
 }
 
@@ -394,9 +406,35 @@ function decodeFtue(value: unknown): SaveFtueStateV1 | null {
     return null
   }
 
+  const barnHandoff = decodeFtueBarnHandoff(value.barnHandoff)
+  if (!barnHandoff) {
+    return null
+  }
+
   return {
     currentStep: value.currentStep,
     completedAtEpochMs: value.currentStep === null ? value.completedAtEpochMs : null,
+    barnHandoff,
+  }
+}
+
+function decodeFtueBarnHandoff(value: unknown): SaveFtueBarnHandoffStateV1 | null {
+  if (value === undefined) {
+    return createDefaultFtueBarnHandoffSaveState()
+  }
+
+  if (!isObject(value)) {
+    return null
+  }
+
+  const completedAtEpochMs =
+    value.completedAtEpochMs === undefined ? null : value.completedAtEpochMs
+  if (!isNullableNonNegativeInteger(completedAtEpochMs)) {
+    return null
+  }
+
+  return {
+    completedAtEpochMs,
   }
 }
 

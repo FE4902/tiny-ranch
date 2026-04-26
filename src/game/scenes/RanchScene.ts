@@ -30,6 +30,7 @@ import {
 } from '../maps/ranchMap'
 import {
   getGameServices,
+  type BarnHandoffStateSnapshot,
   type ExpansionStateSnapshot,
   type FtueStateSnapshot,
   type RanchStateSnapshot,
@@ -83,6 +84,16 @@ type AnimalInputSource = 'keyboard' | 'pointer'
 type SellInputSource = 'keyboard' | 'pointer'
 type UpgradeInputSource = 'keyboard' | 'pointer'
 type ExpansionInputSource = 'keyboard' | 'pointer'
+
+export interface RanchSceneDebugUiSnapshot {
+  ftueObjectiveVisible: boolean
+  ftueObjectiveText: string
+  returnObjectiveVisible: boolean
+  returnObjectiveText: string
+  returnObjectiveClaimButtonVisible: boolean
+  returnObjectiveClaimButtonText: string
+}
+
 type PlantingValidationResult =
   | 'ok'
   | 'invalid_zone'
@@ -175,6 +186,7 @@ export class RanchScene extends Phaser.Scene {
   private readonly interactables: RanchInteractable[] = []
   private unsubscribeInventoryChanges?: () => void
   private unsubscribeCurrencyChanges?: () => void
+  private unsubscribeBarnChanges?: () => void
   private unsubscribeExpansionChanges?: () => void
   private unsubscribeUpgradeChanges?: () => void
   private unsubscribeFtueStateChanges?: () => void
@@ -286,15 +298,25 @@ export class RanchScene extends Phaser.Scene {
     })
     this.unsubscribeInventoryChanges = services.onInventoryChanged(() => {
       this.refreshInventoryUi()
+      this.refreshFtueObjectiveUi()
+      this.refreshReturnObjectiveUi()
     })
     this.unsubscribeCurrencyChanges = services.onCurrencyChanged(() => {
       this.refreshCurrencyUi()
       this.refreshUpgradeUi()
+      this.refreshFtueObjectiveUi()
+      this.refreshReturnObjectiveUi()
+    })
+    this.unsubscribeBarnChanges = services.onBarnStateChanged(() => {
+      this.refreshFtueObjectiveUi()
+      this.refreshReturnObjectiveUi()
     })
     this.unsubscribeExpansionChanges = services.onExpansionStateChanged((snapshot) => {
       this.expansionState = snapshot
       this.refreshExpansionGatedVisuals()
       this.updateInteractionState(ranchMapContract)
+      this.refreshFtueObjectiveUi()
+      this.refreshReturnObjectiveUi()
     })
     this.unsubscribeUpgradeChanges = services.onUpgradeStateChanged(() => {
       this.refreshUpgradeUi()
@@ -338,6 +360,8 @@ export class RanchScene extends Phaser.Scene {
       this.unsubscribeInventoryChanges = undefined
       this.unsubscribeCurrencyChanges?.()
       this.unsubscribeCurrencyChanges = undefined
+      this.unsubscribeBarnChanges?.()
+      this.unsubscribeBarnChanges = undefined
       this.unsubscribeExpansionChanges?.()
       this.unsubscribeExpansionChanges = undefined
       this.unsubscribeUpgradeChanges?.()
@@ -368,6 +392,7 @@ export class RanchScene extends Phaser.Scene {
       this.upgradePanelBg = undefined
       this.upgradePanelTitle = undefined
       this.upgradePanelHeight = 0
+      this.ftueObjectiveLabel = undefined
       this.returnObjectiveLabel = undefined
       this.returnObjectiveClaimButton = undefined
       this.hasTrackedUpgradePanelView = false
@@ -387,6 +412,17 @@ export class RanchScene extends Phaser.Scene {
     this.tryUpgradeHotkeys()
     this.tryClaimReturnObjectiveHotkey()
     this.tryInteract()
+  }
+
+  public getDebugUiSnapshot(): RanchSceneDebugUiSnapshot {
+    return {
+      ftueObjectiveVisible: this.ftueObjectiveLabel?.visible ?? false,
+      ftueObjectiveText: this.ftueObjectiveLabel?.text ?? '',
+      returnObjectiveVisible: this.returnObjectiveLabel?.visible ?? false,
+      returnObjectiveText: this.returnObjectiveLabel?.text ?? '',
+      returnObjectiveClaimButtonVisible: this.returnObjectiveClaimButton?.visible ?? false,
+      returnObjectiveClaimButtonText: this.returnObjectiveClaimButton?.text ?? '',
+    }
   }
 
   private drawBackdrop(): void {
@@ -629,8 +665,12 @@ export class RanchScene extends Phaser.Scene {
   }
 
   private buildFtueObjectiveText(state: FtueStateSnapshot): string | null {
-    if (!state.enabled || state.currentStep === null || ftueConfig.steps.length === 0) {
+    if (!state.enabled || ftueConfig.steps.length === 0) {
       return null
+    }
+
+    if (state.currentStep === null) {
+      return this.buildBarnHandoffObjectiveText(state.barnHandoff)
     }
 
     const currentStep = getFtueStepConfig(state.currentStep)
@@ -638,6 +678,61 @@ export class RanchScene extends Phaser.Scene {
     const inputHint = this.inputPrefersTouch ? currentStep.touchHint : currentStep.keyboardHint
 
     return `Objective ${stepIndex + 1}/${ftueConfig.steps.length}\n${currentStep.title}\n${inputHint}`
+  }
+
+  private buildBarnHandoffObjectiveText(handoff: BarnHandoffStateSnapshot): string | null {
+    if (!handoff.enabled || !handoff.isVisible || !handoff.targetRecipeLabel) {
+      return null
+    }
+
+    return [
+      'Barn objective',
+      ftueConfig.barnHandoff.title,
+      this.buildBarnHandoffNextActionText(handoff),
+    ].join('\n')
+  }
+
+  private buildBarnHandoffNextActionText(handoff: BarnHandoffStateSnapshot): string {
+    if (handoff.nextAction === 'completed') {
+      return ftueConfig.barnHandoff.completedHint
+    }
+
+    return this.buildBarnObjectiveProgressHint(handoff)
+  }
+
+  private buildBarnObjectiveProgressHint(handoff: BarnHandoffStateSnapshot): string {
+    const recipeLabel = handoff.targetRecipeLabel ?? 'Barn batch'
+    if (!handoff.requiredZoneUnlocked) {
+      return ftueConfig.barnHandoff.lockedHint
+    }
+
+    if (handoff.readyJobCount > 0) {
+      return `Claim the ready ${recipeLabel} output in the Barn.`
+    }
+
+    if (handoff.activeJobCount > 0) {
+      return `Wait for ${recipeLabel} to finish in the Barn.`
+    }
+
+    if (handoff.missingInputs.length > 0) {
+      const missingLine = handoff.missingInputs
+        .map((item) => {
+          const missingQuantity = Math.max(0, item.requiredQuantity - item.availableQuantity)
+          return `${this.formatInventoryItemLabel(item.itemId)} x${missingQuantity}`
+        })
+        .join(', ')
+
+      return `${ftueConfig.barnHandoff.missingInputHint} Need ${missingLine}.`
+    }
+
+    if (handoff.missingCoins > 0) {
+      return `Earn ${handoff.missingCoins} more coin${handoff.missingCoins === 1 ? '' : 's'} for ${recipeLabel}.`
+    }
+
+    const openBarnHint = this.inputPrefersTouch
+      ? ftueConfig.barnHandoff.touchOpenBarnHint
+      : ftueConfig.barnHandoff.keyboardOpenBarnHint
+    return `${ftueConfig.barnHandoff.readyHint} ${openBarnHint}`
   }
 
   private refreshReturnObjectiveUi(state?: ReturnObjectiveStateSnapshot): void {
@@ -702,9 +797,20 @@ export class RanchScene extends Phaser.Scene {
       state.streakBonusEnabled && state.streakRewardBonusAmount > 0
         ? `Claim reward: +${state.claimRewardAmount} coins (base +${state.rewardAmount}, streak +${state.streakRewardBonusAmount})`
         : `Claim reward: +${state.claimRewardAmount} coins`
+    const barnActionLine = this.buildReturnObjectiveBarnActionText(state)
 
     if (!state.streakBonusEnabled) {
-      return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\nStreak bonus: disabled for this rollout.\n${rewardDetail}\n${statusLabel}`
+      return [
+        'Return objective',
+        state.title,
+        `${metricLabel}: ${state.progressValue}/${state.targetValue}`,
+        barnActionLine,
+        'Streak bonus: disabled for this rollout.',
+        rewardDetail,
+        statusLabel,
+      ]
+        .filter((line): line is string => typeof line === 'string' && line.length > 0)
+        .join('\n')
     }
 
     const streakWindowHours = Math.max(1, Math.round(state.streakGraceWindowMs / (60 * 60 * 1000)))
@@ -717,7 +823,34 @@ export class RanchScene extends Phaser.Scene {
         ? `Next tier ${state.nextStreakTier} preview: +${state.nextClaimRewardAmount} coins`
         : `Max streak tier preview: +${state.nextClaimRewardAmount} coins`
 
-    return `Return objective\n${state.title}\n${metricLabel}: ${state.progressValue}/${state.targetValue}\n${streakLabel}\n${rewardDetail}\n${nextTierLabel}\n${statusLabel}`
+    return [
+      'Return objective',
+      state.title,
+      `${metricLabel}: ${state.progressValue}/${state.targetValue}`,
+      barnActionLine,
+      streakLabel,
+      rewardDetail,
+      nextTierLabel,
+      statusLabel,
+    ]
+      .filter((line): line is string => typeof line === 'string' && line.length > 0)
+      .join('\n')
+  }
+
+  private buildReturnObjectiveBarnActionText(
+    state: ReturnObjectiveStateSnapshot,
+  ): string | null {
+    if (state.metric !== 'barn_claim_count' || state.isCompleted) {
+      return null
+    }
+
+    const services = getGameServices(this)
+    const handoff = services.getBarnHandoffStateSnapshot()
+    if (!handoff.enabled) {
+      return 'Next: open Barn and process a batch.'
+    }
+
+    return `Next: ${this.buildBarnObjectiveProgressHint(handoff)}`
   }
 
   private buildRanchStateSnapshot(): RanchStateSnapshot {

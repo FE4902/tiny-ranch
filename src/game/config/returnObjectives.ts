@@ -2,6 +2,7 @@ import {
   type ReturnObjectiveEconomyObjectiveConfig,
   type ReturnObjectiveMetric,
 } from './returnObjectiveEconomyTuning.shared.js'
+import type { BarnProcessingRecipeId } from './barn'
 import {
   retentionObjectiveEconomyTuning,
   retentionRewardCaps,
@@ -14,6 +15,7 @@ export interface ReturnObjectiveConfig {
   goalId: string
   title: string
   metric: ReturnObjectiveMetric
+  barnRecipeId: BarnProcessingRecipeId | null
   targetValue: number
   rewardAmount: number
 }
@@ -57,6 +59,7 @@ function defineReturnObjectiveConfig(config: ReturnObjectiveConfig): ReturnObjec
     goalId: config.goalId.trim(),
     title: config.title.trim(),
     metric: config.metric,
+    barnRecipeId: config.barnRecipeId,
     targetValue: config.targetValue,
     rewardAmount: normalizedRewardAmount,
   }
@@ -70,6 +73,7 @@ function cloneReturnObjectiveConfig(
     goalId: config.goalId,
     title: config.title,
     metric: config.metric,
+    barnRecipeId: (config.barnRecipeId ?? null) as BarnProcessingRecipeId | null,
     targetValue: config.targetValue,
     rewardAmount: config.rewardAmount,
   }

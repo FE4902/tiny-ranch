@@ -82,6 +82,7 @@ import {
   type SaveBarnJobStateV1,
   type SaveBarnMarketOrderStateV1,
   type SaveBarnStateV1,
+  type SaveFtueBarnHandoffStateV1,
   type SaveCropStateV1,
   type SaveFtueStateV1,
   type SaveProgressionStateV1,
@@ -220,11 +221,41 @@ export interface BarnMarketOrderFulfillmentResult {
   state: BarnStateSnapshot
 }
 
+export type BarnHandoffNextAction =
+  | 'complete_ftue'
+  | 'unlock_barn'
+  | 'gather_inputs'
+  | 'earn_coins'
+  | 'start_recipe'
+  | 'wait_for_completion'
+  | 'claim_output'
+  | 'completed'
+
+export interface BarnHandoffStateSnapshot {
+  enabled: boolean
+  handoffId: string | null
+  targetRecipeId: BarnProcessingRecipeId | null
+  targetRecipeLabel: string | null
+  targetRecipeDescription: string | null
+  requiredZoneId: string | null
+  requiredZoneUnlocked: boolean
+  isVisible: boolean
+  isCompleted: boolean
+  completedAtEpochMs: number | null
+  activeJobCount: number
+  readyJobCount: number
+  missingInputs: BarnMissingInput[]
+  missingCoins: number
+  canStart: boolean
+  nextAction: BarnHandoffNextAction
+}
+
 export interface FtueStateSnapshot {
   enabled: boolean
   currentStep: FtueStepId | null
   completedAtEpochMs: number | null
   isCompleted: boolean
+  barnHandoff: BarnHandoffStateSnapshot
 }
 
 export interface ReturnObjectiveStateSnapshot {
@@ -235,6 +266,7 @@ export interface ReturnObjectiveStateSnapshot {
   goalId: string | null
   title: string | null
   metric: ReturnObjectiveMetric | null
+  barnRecipeId: BarnProcessingRecipeId | null
   targetValue: number
   rewardAmount: number
   progressValue: number
@@ -382,6 +414,7 @@ export interface GameServices {
   purchaseUpgrade: (upgradeId: UpgradeId, source?: string) => UpgradePurchaseResult
   onUpgradeStateChanged: (listener: UpgradeStateChangeListener) => () => void
   getFtueStateSnapshot: () => FtueStateSnapshot
+  getBarnHandoffStateSnapshot: () => BarnHandoffStateSnapshot
   advanceFtue: (signal: FtueProgressSignal) => FtueStateSnapshot
   onFtueStateChanged: (listener: FtueStateChangeListener) => () => void
   getReturnObjectiveStateSnapshot: () => ReturnObjectiveStateSnapshot
@@ -468,8 +501,25 @@ function isSaveFtueState(value: unknown): value is SaveFtueStateV1 {
   const hasValidStep = ftue.currentStep === null || isFtueStepId(ftue.currentStep)
   const hasValidCompletionTimestamp =
     ftue.completedAtEpochMs === null || isNonNegativeInteger(ftue.completedAtEpochMs)
+  const hasValidBarnHandoff =
+    ftue.barnHandoff === undefined || isSaveFtueBarnHandoffState(ftue.barnHandoff)
 
-  return hasValidStep && hasValidCompletionTimestamp
+  return hasValidStep && hasValidCompletionTimestamp && hasValidBarnHandoff
+}
+
+function isSaveFtueBarnHandoffState(
+  value: unknown,
+): value is SaveFtueBarnHandoffStateV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const handoff = value as Partial<SaveFtueBarnHandoffStateV1>
+  return (
+    handoff.completedAtEpochMs === undefined ||
+    handoff.completedAtEpochMs === null ||
+    isNonNegativeInteger(handoff.completedAtEpochMs)
+  )
 }
 
 function isSaveBarnJobState(value: unknown): value is SaveBarnJobStateV1 {
@@ -612,17 +662,34 @@ function normalizeFtueState(state: SaveFtueStateV1): SaveFtueStateV1 {
     state.completedAtEpochMs === null || isNonNegativeInteger(state.completedAtEpochMs)
       ? state.completedAtEpochMs
       : null
+  const barnHandoff = normalizeFtueBarnHandoffState(state.barnHandoff)
 
   if (normalizedStep !== null) {
     return {
       currentStep: normalizedStep,
       completedAtEpochMs: null,
+      barnHandoff,
     }
   }
 
   return {
     currentStep: null,
     completedAtEpochMs: normalizedCompletedAt ?? Date.now(),
+    barnHandoff,
+  }
+}
+
+function normalizeFtueBarnHandoffState(
+  state: SaveFtueBarnHandoffStateV1 | undefined,
+): SaveFtueBarnHandoffStateV1 {
+  const rawCompletedAt = state?.completedAtEpochMs
+  const completedAtEpochMs =
+    rawCompletedAt === null || isNonNegativeInteger(rawCompletedAt)
+      ? rawCompletedAt
+      : null
+
+  return {
+    completedAtEpochMs,
   }
 }
 
@@ -853,6 +920,7 @@ function createEmptyReturnObjectiveSnapshot(
     goalId: null,
     title: null,
     metric: null,
+    barnRecipeId: null,
     targetValue: 0,
     rewardAmount: 0,
     progressValue: 0,
@@ -921,6 +989,7 @@ function buildReturnObjectiveSnapshot(
     goalId: objectiveConfig.goalId,
     title: objectiveConfig.title,
     metric: objectiveConfig.metric,
+    barnRecipeId: objectiveConfig.barnRecipeId,
     targetValue: objectiveConfig.targetValue,
     rewardAmount: objectiveConfig.rewardAmount,
     progressValue,
@@ -1278,14 +1347,123 @@ export function createGameServices(
     return normalizeFtueState(rawState)
   }
 
+  const createDisabledBarnHandoffSnapshot = (): BarnHandoffStateSnapshot => ({
+    enabled: false,
+    handoffId: null,
+    targetRecipeId: null,
+    targetRecipeLabel: null,
+    targetRecipeDescription: null,
+    requiredZoneId: null,
+    requiredZoneUnlocked: false,
+    isVisible: false,
+    isCompleted: false,
+    completedAtEpochMs: null,
+    activeJobCount: 0,
+    readyJobCount: 0,
+    missingInputs: [],
+    missingCoins: 0,
+    canStart: false,
+    nextAction: 'completed',
+  })
+
+  const buildBarnHandoffStateSnapshot = (
+    ftueState: SaveFtueStateV1 = readFtueState(),
+    nowEpochMs: number = Date.now(),
+  ): BarnHandoffStateSnapshot => {
+    const handoffConfig = ftueConfig.barnHandoff
+    if (!handoffConfig.enabledByDefault) {
+      return createDisabledBarnHandoffSnapshot()
+    }
+
+    const recipe = getBarnProcessingRecipeConfig(handoffConfig.targetRecipeId)
+    const inventory = readInventoryState()
+    const balance = readCurrencyBalance()
+    const unlockState = getBarnRecipeUnlockState(handoffConfig.targetRecipeId)
+    const barnState = buildBarnStateSnapshot(readBarnSaveState(), nowEpochMs)
+    const targetJobs = barnState.jobs.filter((job) => job.recipeId === handoffConfig.targetRecipeId)
+    const readyJobCount = targetJobs.filter((job) => job.isReady).length
+    const missingInputs = recipe.inputs
+      .map((item) => {
+        const availableQuantity = inventory[item.itemId] ?? 0
+        if (availableQuantity >= item.quantity) {
+          return null
+        }
+
+        return {
+          itemId: item.itemId,
+          requiredQuantity: item.quantity,
+          availableQuantity,
+        }
+      })
+      .filter((entry): entry is BarnMissingInput => entry !== null)
+    const missingCoins = Math.max(0, recipe.fee - balance)
+    const requiredZoneUnlocked = getExpansionStateSnapshot().unlocks.unlockedZoneIds.includes(
+      handoffConfig.requiredZoneId,
+    )
+    const completedAtEpochMs =
+      normalizeFtueBarnHandoffState(ftueState.barnHandoff).completedAtEpochMs
+    const isCompleted = completedAtEpochMs !== null
+    const isFtueCompleted = ftueState.currentStep === null
+    const canStart =
+      isFtueCompleted &&
+      !isCompleted &&
+      requiredZoneUnlocked &&
+      unlockState.isUnlocked &&
+      missingInputs.length === 0 &&
+      missingCoins === 0 &&
+      targetJobs.length === 0
+
+    let nextAction: BarnHandoffNextAction = 'start_recipe'
+    if (isCompleted) {
+      nextAction = 'completed'
+    } else if (!isFtueCompleted) {
+      nextAction = 'complete_ftue'
+    } else if (!requiredZoneUnlocked || !unlockState.isUnlocked) {
+      nextAction = 'unlock_barn'
+    } else if (readyJobCount > 0) {
+      nextAction = 'claim_output'
+    } else if (targetJobs.length > 0) {
+      nextAction = 'wait_for_completion'
+    } else if (missingInputs.length > 0) {
+      nextAction = 'gather_inputs'
+    } else if (missingCoins > 0) {
+      nextAction = 'earn_coins'
+    }
+
+    return {
+      enabled: true,
+      handoffId: handoffConfig.id,
+      targetRecipeId: handoffConfig.targetRecipeId,
+      targetRecipeLabel: recipe.label,
+      targetRecipeDescription: recipe.description,
+      requiredZoneId: handoffConfig.requiredZoneId,
+      requiredZoneUnlocked,
+      isVisible: isFtueCompleted && !isCompleted,
+      isCompleted,
+      completedAtEpochMs,
+      activeJobCount: targetJobs.length,
+      readyJobCount,
+      missingInputs,
+      missingCoins,
+      canStart,
+      nextAction,
+    }
+  }
+
+  const getBarnHandoffStateSnapshot = (): BarnHandoffStateSnapshot => {
+    return buildBarnHandoffStateSnapshot()
+  }
+
   const getFtueStateSnapshot = (): FtueStateSnapshot => {
     const state = readFtueState()
+    const isCompleted = state.currentStep === null
 
     return {
       enabled: ftueConfig.enabledByDefault,
       currentStep: ftueConfig.enabledByDefault ? state.currentStep : null,
       completedAtEpochMs: state.completedAtEpochMs,
-      isCompleted: state.currentStep === null,
+      isCompleted,
+      barnHandoff: buildBarnHandoffStateSnapshot(state),
     }
   }
 
@@ -1697,6 +1875,45 @@ export function createGameServices(
     return applyCurrencyDelta(amount, reason)
   }
 
+  const completeBarnHandoffIfNeeded = (
+    recipeId: BarnProcessingRecipeId,
+    source: string,
+    nowEpochMs: number,
+    options: {
+      persist?: boolean
+    } = {},
+  ): BarnHandoffStateSnapshot => {
+    const handoffConfig = ftueConfig.barnHandoff
+    if (!handoffConfig.enabledByDefault || handoffConfig.targetRecipeId !== recipeId) {
+      return getBarnHandoffStateSnapshot()
+    }
+
+    const currentState = readFtueState()
+    const handoffState = normalizeFtueBarnHandoffState(currentState.barnHandoff)
+    if (handoffState.completedAtEpochMs !== null) {
+      return buildBarnHandoffStateSnapshot(currentState, nowEpochMs)
+    }
+
+    const nextState = setFtueState(
+      {
+        ...currentState,
+        barnHandoff: {
+          completedAtEpochMs: nowEpochMs,
+        },
+      },
+      { persist: options.persist },
+    )
+
+    telemetry.track('ftue_barn_handoff_completed', {
+      handoffId: handoffConfig.id,
+      targetRecipeId: recipeId,
+      source: source.trim().length > 0 ? source.trim() : 'unspecified',
+      eventTimestampMs: nowEpochMs,
+    })
+
+    return nextState.barnHandoff
+  }
+
   const startBarnJob = (
     recipeId: BarnProcessingRecipeId,
     source: string = 'unspecified',
@@ -1834,6 +2051,7 @@ export function createGameServices(
       { persist: false, nowEpochMs: now },
     )
 
+    completeBarnHandoffIfNeeded(recipeId, normalizedSource, now, { persist: false })
     persistCurrentState()
 
     telemetry.track('barn_job_start_attempt', {
@@ -2332,12 +2550,19 @@ export function createGameServices(
     persistCurrentState()
   }
 
-  const setFtueState = (state: SaveFtueStateV1): FtueStateSnapshot => {
+  const setFtueState = (
+    state: SaveFtueStateV1,
+    options: {
+      persist?: boolean
+    } = {},
+  ): FtueStateSnapshot => {
     const normalizedState = normalizeFtueState(state)
     game.registry.set(FTUE_STATE_REGISTRY_KEY, normalizedState)
     const snapshot = getFtueStateSnapshot()
     game.events.emit(FTUE_CHANGED_EVENT, snapshot)
-    persistCurrentState()
+    if (options.persist !== false) {
+      persistCurrentState()
+    }
     return snapshot
   }
 
@@ -2357,6 +2582,7 @@ export function createGameServices(
     const nextState: SaveFtueStateV1 = {
       currentStep: nextStepId,
       completedAtEpochMs: nextStepId === null ? now : null,
+      barnHandoff: currentState.barnHandoff,
     }
     const nextSnapshot = setFtueState(nextState)
 
@@ -2960,6 +3186,7 @@ export function createGameServices(
     purchaseUpgrade,
     onUpgradeStateChanged,
     getFtueStateSnapshot,
+    getBarnHandoffStateSnapshot,
     advanceFtue,
     onFtueStateChanged,
     getReturnObjectiveStateSnapshot,
