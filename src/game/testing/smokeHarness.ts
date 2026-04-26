@@ -161,6 +161,7 @@ interface BarnUiSnapshot {
   cycleRecipeButtonCenter: ScreenPoint | null
   startRecipeButtonCenter: ScreenPoint | null
   claimButtonCenter: ScreenPoint | null
+  shipOrdersButtonCenter: ScreenPoint | null
 }
 
 interface ReturnSessionSummaryModalSnapshot {
@@ -676,6 +677,7 @@ function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
     cycleRecipeButtonCenter: snapshot.cycleRecipeButtonCenter,
     startRecipeButtonCenter: snapshot.startRecipeButtonCenter,
     claimButtonCenter: snapshot.claimButtonCenter,
+    shipOrdersButtonCenter: snapshot.shipOrdersButtonCenter,
   }
 }
 

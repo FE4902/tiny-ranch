@@ -33,6 +33,15 @@ type BarnSnapshot = {
     isReady: boolean
     remainingMs: number
   }>
+  marketOrders: Array<{
+    orderId: string
+    payout: number
+    baseSellValue: number
+    premiumValue: number
+    isFulfilled: boolean
+    isClaimable: boolean
+    fulfilledAtEpochMs: number | null
+  }>
 }
 
 type BarnUiSnapshot = {
@@ -44,6 +53,7 @@ type BarnUiSnapshot = {
   cycleRecipeButtonCenter: { x: number; y: number } | null
   startRecipeButtonCenter: { x: number; y: number } | null
   claimButtonCenter: { x: number; y: number } | null
+  shipOrdersButtonCenter: { x: number; y: number } | null
 }
 
 type BufferedTelemetryEvent = {
@@ -241,7 +251,11 @@ async function debugSeedInventory(page: Page, itemId: string, quantity: number):
 
 async function tapBarnButton(
   page: Page,
-  buttonKey: 'cycleRecipeButtonCenter' | 'startRecipeButtonCenter' | 'claimButtonCenter',
+  buttonKey:
+    | 'cycleRecipeButtonCenter'
+    | 'startRecipeButtonCenter'
+    | 'claimButtonCenter'
+    | 'shipOrdersButtonCenter',
 ): Promise<void> {
   const canvas = page.locator('canvas').first()
   await canvas.scrollIntoViewIfNeeded()
@@ -421,7 +435,7 @@ test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy 
     })
     .toBe('barn')
 
-  expect((await getBarnUiSnapshot(page)).recipeDetailText).toContain('Controls tap the buttons or press Q / W / E.')
+  expect((await getBarnUiSnapshot(page)).recipeDetailText).toContain('Next gather milk x2.')
 
   await tapBarnButton(page, 'startRecipeButtonCenter')
   await expect
@@ -473,7 +487,7 @@ test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy 
     .toBe(true)
 
   await expect
-    .poll(async () => (await getBarnUiSnapshot(page)).jobListText.includes('(ready)'), {
+    .poll(async () => (await getBarnUiSnapshot(page)).jobListText.includes('ready to claim'), {
       timeout: 5_000,
       message: 'Expected Barn queue copy to surface the claim-ready state on mobile.',
     })
@@ -504,16 +518,74 @@ test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy 
   expect(getCheesePressEconomyValue(claimedSnapshot) - seededEconomyValue).toBe(
     CHEESE_PRESS_EXPECTED_NET_VALUE,
   )
+  const claimableCreameryOrder = claimedSnapshot.marketOrders.find(
+    (order) => order.orderId === 'creamery_delivery',
+  )
+  expect(claimableCreameryOrder).toBeDefined()
+  expect(claimableCreameryOrder?.isClaimable).toBe(true)
+
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).jobListText, {
+      timeout: 5_000,
+      message: 'Expected claimed Barn output to make the matching market order actionable.',
+    })
+    .toContain('Creamery Delivery: ready to ship')
+
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).recipeDetailText, {
+      timeout: 5_000,
+      message: 'Expected Barn mobile copy to surface the ready market-order action.',
+    })
+    .toContain('Next ship 1 ready market order.')
+
+  await tapBarnButton(page, 'shipOrdersButtonCenter')
+
+  await expect
+    .poll(async () => (await getBarnSnapshot(page)).inventory.cheese ?? 0, {
+      timeout: 5_000,
+      message: 'Expected touch market-order fulfillment to consume claimed cheese.',
+    })
+    .toBe(0)
+
+  await expect
+    .poll(async () => (await getBarnSnapshot(page)).balance, {
+      timeout: 5_000,
+      message: 'Expected touch market-order fulfillment to pay the configured order payout.',
+    })
+    .toBe(claimableCreameryOrder?.payout ?? 0)
+
+  const fulfilledSnapshot = await getBarnSnapshot(page)
+  const fulfilledCreameryOrder = fulfilledSnapshot.marketOrders.find(
+    (order) => order.orderId === claimableCreameryOrder?.orderId,
+  )
+  expect(fulfilledCreameryOrder?.isFulfilled).toBe(true)
+  expect(fulfilledCreameryOrder?.fulfilledAtEpochMs).not.toBeNull()
+  expect(getCheesePressEconomyValue(fulfilledSnapshot) - seededEconomyValue).toBe(
+    CHEESE_PRESS_EXPECTED_NET_VALUE + (claimableCreameryOrder?.premiumValue ?? 0),
+  )
+
+  await expect
+    .poll(async () => (await getBarnUiSnapshot(page)).feedbackText, {
+      timeout: 5_000,
+      message: 'Expected Barn touch order fulfillment to show payout feedback.',
+    })
+    .toBe(`Shipped 1 market order for ${claimableCreameryOrder?.payout ?? 0} coins.`)
 
   await page.reload({ waitUntil: 'domcontentloaded' })
   await waitForSmokeHarness(page)
 
   const persistedSnapshot = await getBarnSnapshot(page)
+  const persistedCreameryOrder = persistedSnapshot.marketOrders.find(
+    (order) => order.orderId === claimableCreameryOrder?.orderId,
+  )
   expect((await getSnapshot(page)).activeScene).toBe('barn')
   expect(persistedSnapshot.jobs).toHaveLength(0)
-  expect(persistedSnapshot.inventory.cheese).toBe(1)
+  expect(persistedSnapshot.inventory.cheese ?? 0).toBe(0)
+  expect(persistedSnapshot.balance).toBe(claimableCreameryOrder?.payout ?? 0)
+  expect(persistedCreameryOrder?.isFulfilled).toBe(true)
+  expect(persistedCreameryOrder?.isClaimable).toBe(false)
   expect(getCheesePressEconomyValue(persistedSnapshot) - seededEconomyValue).toBe(
-    CHEESE_PRESS_EXPECTED_NET_VALUE,
+    CHEESE_PRESS_EXPECTED_NET_VALUE + (claimableCreameryOrder?.premiumValue ?? 0),
   )
 
   const lifecycleEvents = (await getTelemetryEvents(page)).filter((event) =>
@@ -548,6 +620,15 @@ test('mobile Barn scene touch flow emits lifecycle telemetry, preserves economy 
   expect(processedPayload.eventTimestampMs).toBe(processedPayload.processedAtEpochMs)
   expect(claimedPayload.processedAtEpochMs).toBe(processedPayload.processedAtEpochMs)
   expect(claimedPayload.claimedAtEpochMs).toBe(claimedPayload.eventTimestampMs)
+
+  const marketOrderEvents = (await getTelemetryEvents(page)).filter(
+    (event) => event.name === 'barn_market_order_fulfilled',
+  )
+  expect(marketOrderEvents).toHaveLength(1)
+  expect(marketOrderEvents[0]?.payload.orderId).toBe(claimableCreameryOrder?.orderId)
+  expect(marketOrderEvents[0]?.payload.payout).toBe(claimableCreameryOrder?.payout)
+  expect(marketOrderEvents[0]?.payload.premiumValue).toBe(claimableCreameryOrder?.premiumValue)
+  expect(marketOrderEvents[0]?.payload.source).toBe('barn:pointer')
 })
 
 test('mobile Barn locked recipe feedback unlocks through expansion progression', async ({
@@ -576,6 +657,7 @@ test('mobile Barn locked recipe feedback unlocks through expansion progression',
   const lockedUi = await getBarnUiSnapshot(page)
   expect(lockedUi.recipeDetailText).toContain('Status Locked')
   expect(lockedUi.recipeDetailText).toContain('Reach Market Expansion (Tier 2)')
+  expect(lockedUi.recipeDetailText).toContain('Next unlock: Reach Market Expansion (Tier 2).')
 
   await tapBarnButton(page, 'startRecipeButtonCenter')
   await expect

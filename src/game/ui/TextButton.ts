@@ -64,4 +64,21 @@ export class TextButton extends Phaser.GameObjects.Container {
     this.background.setStrokeStyle(1, isSelected ? palette.borderActive : palette.border, 1)
     this.label.setColor(isSelected ? palette.textActive : palette.text)
   }
+
+  setLabel(text: string): void {
+    this.label.setText(text)
+  }
+
+  setButtonSize(width: number, height: number): void {
+    const safeWidth = Math.max(48, Math.floor(width))
+    const safeHeight = Math.max(36, Math.floor(height))
+
+    this.background.setSize(safeWidth, safeHeight)
+    this.setSize(safeWidth, safeHeight)
+
+    const hitArea = this.background.input?.hitArea
+    if (hitArea instanceof Phaser.Geom.Rectangle) {
+      hitArea.setTo(0, 0, safeWidth, safeHeight)
+    }
+  }
 }

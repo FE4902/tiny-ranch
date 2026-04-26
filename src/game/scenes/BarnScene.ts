@@ -3,12 +3,17 @@ import Phaser from 'phaser'
 import {
   barnProcessingRecipeIds,
   getBarnProcessingRecipeConfig,
+  type BarnProcessingRecipeConfig,
   type BarnProcessingRecipeUnlockState,
   type BarnProcessingLineItem,
   type BarnProcessingRecipeId,
 } from '../config/barn'
 import { SCENE_KEYS } from '../constants'
-import { getGameServices, type BarnMarketOrderSnapshot } from '../systems/runtime'
+import {
+  getGameServices,
+  type BarnMarketOrderFulfillmentResult,
+  type BarnMarketOrderSnapshot,
+} from '../systems/runtime'
 import { BasePlayScene } from './BasePlayScene'
 import { TextButton } from '../ui/TextButton'
 
@@ -31,6 +36,7 @@ export interface BarnSceneDebugUiSnapshot {
   cycleRecipeButtonCenter: BarnSceneDebugPoint | null
   startRecipeButtonCenter: BarnSceneDebugPoint | null
   claimButtonCenter: BarnSceneDebugPoint | null
+  shipOrdersButtonCenter: BarnSceneDebugPoint | null
 }
 
 export class BarnScene extends BasePlayScene {
@@ -53,6 +59,7 @@ export class BarnScene extends BasePlayScene {
   private cycleRecipeButton?: TextButton
   private startRecipeButton?: TextButton
   private claimButton?: TextButton
+  private shipOrdersButton?: TextButton
   private unsubscribeInventoryChanges?: () => void
   private unsubscribeBarnChanges?: () => void
   private unsubscribeExpansionChanges?: () => void
@@ -115,6 +122,11 @@ export class BarnScene extends BasePlayScene {
     })
     this.add.existing(this.claimButton)
 
+    this.shipOrdersButton = new TextButton(this, 0, 0, 'Ship Orders', () => {
+      this.handleShipOrders()
+    })
+    this.add.existing(this.shipOrdersButton)
+
     const services = getGameServices(this)
     this.unsubscribeInventoryChanges = services.onInventoryChanged(() => this.refreshBarnUi())
     this.unsubscribeBarnChanges = services.onBarnStateChanged(() => this.refreshBarnUi())
@@ -174,6 +186,7 @@ export class BarnScene extends BasePlayScene {
       cycleRecipeButtonCenter: this.resolveButtonCenter(this.cycleRecipeButton),
       startRecipeButtonCenter: this.resolveButtonCenter(this.startRecipeButton),
       claimButtonCenter: this.resolveButtonCenter(this.claimButton),
+      shipOrdersButtonCenter: this.resolveButtonCenter(this.shipOrdersButton),
     }
   }
 
@@ -255,6 +268,26 @@ export class BarnScene extends BasePlayScene {
     this.refreshBarnUi()
   }
 
+  private handleShipOrders(source: string = 'barn:pointer'): void {
+    const services = getGameServices(this)
+    const result = services.fulfillBarnMarketOrders(source)
+
+    if (!this.feedbackText) {
+      return
+    }
+
+    if (result.result !== 'fulfilled') {
+      this.feedbackText.setColor('#f6bf5f')
+      this.feedbackText.setText('No ready market orders. Claim Barn goods first.')
+      this.refreshBarnUi()
+      return
+    }
+
+    this.feedbackText.setColor('#8dd6a0')
+    this.feedbackText.setText(this.formatOrderFulfillmentFeedback(result))
+    this.refreshBarnUi()
+  }
+
   private refreshBarnUi(): void {
     if (
       !this.inventoryText ||
@@ -263,7 +296,8 @@ export class BarnScene extends BasePlayScene {
       !this.feedbackText ||
       !this.cycleRecipeButton ||
       !this.startRecipeButton ||
-      !this.claimButton
+      !this.claimButton ||
+      !this.shipOrdersButton
     ) {
       return
     }
@@ -273,43 +307,31 @@ export class BarnScene extends BasePlayScene {
     const barnState = services.getBarnStateSnapshot()
     const selectedRecipe = getBarnProcessingRecipeConfig(this.selectedRecipeId)
     const unlockState = services.getBarnRecipeUnlockState(this.selectedRecipeId)
+    const balance = services.getCurrencyBalance()
+    const compactLayout = this.isStackedLayout()
     const readyJobCount = barnState.jobs.filter((job) => job.isReady).length
+    const claimableOrderCount = barnState.marketOrders.filter((order) => order.isClaimable).length
 
     this.cycleRecipeButton.setSelected(false)
     this.startRecipeButton.setSelected(unlockState.isUnlocked)
     this.claimButton.setSelected(readyJobCount > 0)
-    this.inventoryText.setText(
-      [
-        'Inventory',
-        [
-          this.formatInventoryLine('milk', inventory.milk ?? 0),
-          this.formatInventoryLine('turnip', inventory.turnip ?? 0),
-          this.formatInventoryLine('egg', inventory.egg ?? 0),
-          this.formatInventoryLine('wool', inventory.wool ?? 0),
-        ].join('  |  '),
-        [
-          this.formatInventoryLine('cheese', inventory.cheese ?? 0),
-          this.formatInventoryLine('animal_feed', inventory.animal_feed ?? 0),
-          this.formatInventoryLine('yarn', inventory.yarn ?? 0),
-        ].join('  |  '),
-        `Coins ${services.getCurrencyBalance()}`,
-      ].join('\n'),
-    )
+    this.shipOrdersButton.setSelected(claimableOrderCount > 0)
+    const nextActionText = this.buildNextActionText({
+      recipe: selectedRecipe,
+      unlockState,
+      inventory,
+      balance,
+      readyJobCount,
+      claimableOrderCount,
+    })
+
+    this.inventoryText.setText(this.buildInventoryText(inventory, balance, compactLayout))
     this.recipeDetailText.setText(
-      [
-        `${selectedRecipe.label} (${barnProcessingRecipeIds.indexOf(this.selectedRecipeId) + 1}/${barnProcessingRecipeIds.length})`,
-        unlockState.isUnlocked
-          ? 'Status Unlocked'
-          : `Status Locked: ${this.formatLockedReason(unlockState)}`,
-        `Input ${this.formatLineItems(selectedRecipe.inputs)}`,
-        `Output ${this.formatLineItems(selectedRecipe.outputs)}`,
-        `Fee ${selectedRecipe.fee} coin${selectedRecipe.fee === 1 ? '' : 's'}`,
-        `Duration ${this.formatDurationLabel(selectedRecipe.durationMs)}`,
-        'Controls tap the buttons or press Q / W / E.',
-        selectedRecipe.description,
-      ].join('\n'),
+      this.buildRecipeDetailText(selectedRecipe, unlockState, nextActionText, compactLayout),
     )
-    this.jobListText.setText(this.buildBarnListText(barnState.jobs, barnState.marketOrders))
+    this.jobListText.setText(
+      this.buildBarnListText(barnState.jobs, barnState.marketOrders, compactLayout),
+    )
   }
 
   private layoutBarnUi(): void {
@@ -320,22 +342,38 @@ export class BarnScene extends BasePlayScene {
       !this.feedbackText ||
       !this.cycleRecipeButton ||
       !this.startRecipeButton ||
-      !this.claimButton
+      !this.claimButton ||
+      !this.shipOrdersButton
     ) {
       return
     }
 
-    const stackedLayout = this.scale.width < 760
+    const stackedLayout = this.isStackedLayout()
     const panelX = stackedLayout ? 24 : Math.max(348, this.scale.width - 286)
     const contentWidth = stackedLayout
       ? Math.max(220, this.scale.width - 48)
       : Math.max(220, Math.min(260, this.scale.width - panelX - PANEL_RIGHT_MARGIN))
-    const baseY = stackedLayout ? Math.max(286, this.scale.height * 0.5) : PANEL_TOP
+    const compactButtonWidth = stackedLayout
+      ? Math.max(64, Math.min(82, (contentWidth - 12) / 4))
+      : 112
+    const baseY = stackedLayout
+      ? Math.max(136, Math.min(158, this.scale.height - 294))
+      : PANEL_TOP
+
+    this.configureBarnButtons(stackedLayout, compactButtonWidth)
+    this.inventoryText.setFontSize(stackedLayout ? '13px' : '16px')
+    this.recipeDetailText.setFontSize(stackedLayout ? '13px' : '16px')
+    this.jobListText.setFontSize(stackedLayout ? '12px' : '13px')
+    this.feedbackText.setFontSize(stackedLayout ? '13px' : '15px')
+    this.inventoryText.setLineSpacing(stackedLayout ? 3 : 6)
+    this.recipeDetailText.setLineSpacing(stackedLayout ? 3 : 6)
+    this.jobListText.setLineSpacing(stackedLayout ? 2 : 5)
+    this.feedbackText.setLineSpacing(stackedLayout ? 3 : 4)
 
     this.inventoryText.setPosition(panelX, baseY)
-    this.recipeDetailText.setPosition(panelX, baseY + 88)
-    this.jobListText.setPosition(panelX, baseY + 214)
-    this.feedbackText.setPosition(panelX, stackedLayout ? baseY - 34 : this.scale.height - 108)
+    this.recipeDetailText.setPosition(panelX, stackedLayout ? baseY + 60 : baseY + 88)
+    this.jobListText.setPosition(panelX, stackedLayout ? baseY + 174 : baseY + 214)
+    this.feedbackText.setPosition(panelX, stackedLayout ? baseY - 28 : this.scale.height - 108)
 
     this.inventoryText.setWordWrapWidth(contentWidth)
     this.recipeDetailText.setWordWrapWidth(contentWidth)
@@ -343,15 +381,47 @@ export class BarnScene extends BasePlayScene {
     this.feedbackText.setWordWrapWidth(contentWidth)
 
     if (stackedLayout) {
-      this.cycleRecipeButton.setPosition(panelX + 56, this.scale.height - 88)
-      this.startRecipeButton.setPosition(panelX + 176, this.scale.height - 88)
-      this.claimButton.setPosition(panelX + 56, this.scale.height - 40)
+      const buttonGap = Math.max(4, (contentWidth - compactButtonWidth * 4) / 3)
+      const buttonStep = compactButtonWidth + buttonGap
+      const buttonY = this.scale.height - 24
+      const firstButtonX = panelX + compactButtonWidth / 2
+      this.cycleRecipeButton.setPosition(firstButtonX, buttonY)
+      this.startRecipeButton.setPosition(firstButtonX + buttonStep, buttonY)
+      this.claimButton.setPosition(firstButtonX + buttonStep * 2, buttonY)
+      this.shipOrdersButton.setPosition(firstButtonX + buttonStep * 3, buttonY)
       return
     }
 
     this.cycleRecipeButton.setPosition(panelX + 56, baseY + 90)
     this.startRecipeButton.setPosition(panelX + 176, baseY + 90)
     this.claimButton.setPosition(panelX + 56, this.scale.height - 42)
+    this.shipOrdersButton.setPosition(panelX + 176, this.scale.height - 42)
+  }
+
+  private isStackedLayout(): boolean {
+    return this.scale.width < 760
+  }
+
+  private configureBarnButtons(isCompact: boolean, width: number): void {
+    if (
+      !this.cycleRecipeButton ||
+      !this.startRecipeButton ||
+      !this.claimButton ||
+      !this.shipOrdersButton
+    ) {
+      return
+    }
+
+    const height = isCompact ? 42 : 40
+    this.cycleRecipeButton.setButtonSize(width, height)
+    this.startRecipeButton.setButtonSize(width, height)
+    this.claimButton.setButtonSize(width, height)
+    this.shipOrdersButton.setButtonSize(width, height)
+
+    this.cycleRecipeButton.setLabel(isCompact ? 'Recipe' : 'Next Recipe')
+    this.startRecipeButton.setLabel(isCompact ? 'Start' : 'Start Batch')
+    this.claimButton.setLabel(isCompact ? 'Claim' : 'Claim Ready')
+    this.shipOrdersButton.setLabel(isCompact ? 'Ship' : 'Ship Orders')
   }
 
   private formatDurationLabel(durationMs: number): string {
@@ -389,6 +459,146 @@ export class BarnScene extends BasePlayScene {
       .join(', ')
   }
 
+  private buildInventoryText(
+    inventory: Readonly<Record<string, number>>,
+    balance: number,
+    isCompact: boolean,
+  ): string {
+    if (isCompact) {
+      return [
+        `Inventory | Coins ${balance}`,
+        [
+          this.formatInventoryLine('milk', inventory.milk ?? 0),
+          this.formatInventoryLine('turnip', inventory.turnip ?? 0),
+          this.formatInventoryLine('egg', inventory.egg ?? 0),
+          this.formatInventoryLine('wool', inventory.wool ?? 0),
+        ].join(' | '),
+        [
+          this.formatInventoryLine('cheese', inventory.cheese ?? 0),
+          this.formatInventoryLine('animal_feed', inventory.animal_feed ?? 0),
+          this.formatInventoryLine('yarn', inventory.yarn ?? 0),
+        ].join(' | '),
+      ].join('\n')
+    }
+
+    return [
+      'Inventory',
+      [
+        this.formatInventoryLine('milk', inventory.milk ?? 0),
+        this.formatInventoryLine('turnip', inventory.turnip ?? 0),
+        this.formatInventoryLine('egg', inventory.egg ?? 0),
+        this.formatInventoryLine('wool', inventory.wool ?? 0),
+      ].join('  |  '),
+      [
+        this.formatInventoryLine('cheese', inventory.cheese ?? 0),
+        this.formatInventoryLine('animal_feed', inventory.animal_feed ?? 0),
+        this.formatInventoryLine('yarn', inventory.yarn ?? 0),
+      ].join('  |  '),
+      `Coins ${balance}`,
+    ].join('\n')
+  }
+
+  private buildRecipeDetailText(
+    recipe: BarnProcessingRecipeConfig,
+    unlockState: BarnProcessingRecipeUnlockState,
+    nextActionText: string,
+    isCompact: boolean,
+  ): string {
+    const statusText = unlockState.isUnlocked
+      ? 'Status Unlocked'
+      : `Status Locked: ${this.formatLockedReason(unlockState)}`
+    const recipePosition =
+      barnProcessingRecipeIds.indexOf(this.selectedRecipeId) + 1
+
+    if (isCompact) {
+      return [
+        `${recipe.label} (${recipePosition}/${barnProcessingRecipeIds.length})`,
+        statusText,
+        `Input ${this.formatLineItems(recipe.inputs)}`,
+        `Output ${this.formatLineItems(recipe.outputs)}`,
+        `Fee ${recipe.fee} coin${recipe.fee === 1 ? '' : 's'} | ${this.formatDurationLabel(recipe.durationMs)}`,
+        nextActionText,
+      ].join('\n')
+    }
+
+    return [
+      `${recipe.label} (${recipePosition}/${barnProcessingRecipeIds.length})`,
+      statusText,
+      `Input ${this.formatLineItems(recipe.inputs)}`,
+      `Output ${this.formatLineItems(recipe.outputs)}`,
+      `Fee ${recipe.fee} coin${recipe.fee === 1 ? '' : 's'}`,
+      `Duration ${this.formatDurationLabel(recipe.durationMs)}`,
+      nextActionText,
+      recipe.description,
+    ].join('\n')
+  }
+
+  private buildNextActionText({
+    recipe,
+    unlockState,
+    inventory,
+    balance,
+    readyJobCount,
+    claimableOrderCount,
+  }: {
+    recipe: BarnProcessingRecipeConfig
+    unlockState: BarnProcessingRecipeUnlockState
+    inventory: Readonly<Record<string, number>>
+    balance: number
+    readyJobCount: number
+    claimableOrderCount: number
+  }): string {
+    if (!unlockState.isUnlocked) {
+      return `Next unlock: ${this.formatLockedReason(unlockState)}.`
+    }
+
+    if (readyJobCount > 0 && claimableOrderCount > 0) {
+      return `Next claim ${readyJobCount} ready batch${readyJobCount === 1 ? '' : 'es'} or ship ${claimableOrderCount} order${claimableOrderCount === 1 ? '' : 's'}.`
+    }
+
+    if (readyJobCount > 0) {
+      return `Next claim ${readyJobCount} ready batch${readyJobCount === 1 ? '' : 'es'}.`
+    }
+
+    if (claimableOrderCount > 0) {
+      return `Next ship ${claimableOrderCount} ready market order${claimableOrderCount === 1 ? '' : 's'}.`
+    }
+
+    const missingInputs = recipe.inputs
+      .map((item) => ({
+        itemId: item.itemId,
+        quantity: Math.max(0, item.quantity - (inventory[item.itemId] ?? 0)),
+      }))
+      .filter((item) => item.quantity > 0)
+
+    if (missingInputs.length > 0) {
+      return `Next gather ${this.formatLineItems(missingInputs)}.`
+    }
+
+    const missingCoins = Math.max(0, recipe.fee - balance)
+    if (missingCoins > 0) {
+      return `Next earn ${missingCoins} more coin${missingCoins === 1 ? '' : 's'}.`
+    }
+
+    return 'Next start this batch.'
+  }
+
+  private formatOrderFulfillmentFeedback(result: BarnMarketOrderFulfillmentResult): string {
+    return `Shipped ${result.fulfilledOrderCount} market order${result.fulfilledOrderCount === 1 ? '' : 's'} for ${result.totalPayout} coins.`
+  }
+
+  private formatMarketOrderStatus(order: BarnMarketOrderSnapshot): string {
+    if (order.isFulfilled) {
+      return 'done'
+    }
+
+    if (order.isClaimable) {
+      return 'ready to ship'
+    }
+
+    return `need ${this.formatLineItems(order.requiredItems)}`
+  }
+
   private buildBarnListText(
     jobs: readonly {
       label: string
@@ -397,22 +607,24 @@ export class BarnScene extends BasePlayScene {
       outputs: readonly BarnProcessingLineItem[]
     }[],
     marketOrders: readonly BarnMarketOrderSnapshot[],
+    isCompact: boolean,
   ): string {
     const queueLines =
       jobs.length === 0
-        ? ['No Barn jobs queued.']
+        ? [isCompact ? 'None queued.' : 'No Barn jobs queued.']
         : jobs.slice(0, 4).map((job, index) => {
-            const status = job.isReady ? 'ready' : this.formatDurationLabel(job.remainingMs)
+            const status = job.isReady ? 'ready to claim' : this.formatDurationLabel(job.remainingMs)
+            if (isCompact) {
+              return `${index + 1}. ${job.label}: ${status}`
+            }
+
             return `${index + 1}. ${job.label} -> ${this.formatLineItems(job.outputs)} (${status})`
           })
-    const orderLines = marketOrders.slice(0, 3).map((order, index) => {
-      const status = order.isFulfilled
-        ? 'fulfilled'
-        : order.isClaimable
-          ? 'ready'
-          : 'need goods'
-      return `${index + 1}. ${order.label}: ${this.formatLineItems(order.requiredItems)} -> ${order.payout} coins (+${order.premiumValue}) ${status}`
-    })
+    const orderLines = marketOrders.slice(0, 3).map((order, index) =>
+      isCompact
+        ? `${index + 1}. ${order.label}: ${this.formatMarketOrderStatus(order)}, ${order.payout}c`
+        : `${index + 1}. ${order.label}: ${this.formatMarketOrderStatus(order)} -> ${order.payout} coins (+${order.premiumValue})`,
+    )
 
     return [
       'Queue',
