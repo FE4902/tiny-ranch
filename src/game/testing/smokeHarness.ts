@@ -6,7 +6,7 @@ import type { CropSeedId } from '../config/crops'
 import { getCropSeedConfig } from '../config/crops'
 import { getItemSellPrice } from '../config/economy'
 import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
-import { ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
+import { getRanchMapWorldSize, ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
 import type { BarnScene, BarnSceneDebugUiSnapshot } from '../scenes/BarnScene'
 import type { RanchScene, RanchSceneDebugUiSnapshot } from '../scenes/RanchScene'
 import type { UiScene, UiSceneDebugReturnSessionSummaryModalSnapshot } from '../scenes/UiScene'
@@ -70,6 +70,31 @@ interface CoreLoopRunResult {
 interface ScreenPoint {
   x: number
   y: number
+}
+
+interface ScreenBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+interface RanchMapSmokeSnapshot {
+  widthTiles: number
+  heightTiles: number
+  tileSize: number
+  mapScale: number
+  mapBounds: ScreenBounds
+  cropPlotCount: number
+  visibleCropPlotCount: number
+  cropPlotCssSize: number
+  cropPlots: Array<{
+    id: string
+    x: number
+    y: number
+    center: ScreenPoint
+  }>
+  decorationSpriteCount: number
 }
 
 interface FrameHealthSamplingOptions {
@@ -224,6 +249,7 @@ interface TinyRanchSmokeHarness {
   getRanchUiSnapshot(): RanchUiSnapshot
   getBarnUiSnapshot(): BarnUiSnapshot
   getReturnSessionSummaryModalSnapshot(): ReturnSessionSummaryModalSnapshot
+  getRanchMapSnapshot(): RanchMapSmokeSnapshot
   debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
   debugClaimBarnJob(jobId: string): BarnClaimDebugResult
   debugSellInventory(sellPointId?: SellPointId): InventorySellDebugResult
@@ -406,6 +432,74 @@ function getTileScreenPoint(game: Phaser.Game, tileX: number, tileY: number): Sc
   return {
     x: rect.left + (mapRoot.x + tileCenterWorldX * mapRoot.scaleX) * cssScaleX,
     y: rect.top + (mapRoot.y + tileCenterWorldY * mapRoot.scaleY) * cssScaleY,
+  }
+}
+
+function getRanchMapSnapshot(game: Phaser.Game): RanchMapSmokeSnapshot {
+  const scene = getRanchSceneOrThrow(game)
+  const mapRoot = (scene as unknown as { mapRoot?: Phaser.GameObjects.Container }).mapRoot
+  if (!mapRoot) {
+    throw new Error('Ranch map root is not available yet.')
+  }
+
+  const canvas = game.canvas as HTMLCanvasElement | null
+  if (!canvas) {
+    throw new Error('Game canvas is not available.')
+  }
+
+  const rect = canvas.getBoundingClientRect()
+  const canvasGameWidth = game.scale.width
+  const canvasGameHeight = game.scale.height
+  if (!Number.isFinite(canvasGameWidth) || !Number.isFinite(canvasGameHeight)) {
+    throw new Error('Game scale dimensions are not available.')
+  }
+
+  const cssScaleX = rect.width / canvasGameWidth
+  const cssScaleY = rect.height / canvasGameHeight
+  const worldSize = getRanchMapWorldSize(ranchMapContract)
+  const mapBounds = {
+    x: mapRoot.x * cssScaleX,
+    y: mapRoot.y * cssScaleY,
+    width: worldSize.width * mapRoot.scaleX * cssScaleX,
+    height: worldSize.height * mapRoot.scaleY * cssScaleY,
+  }
+  const cropPlotCssSize = ranchMapContract.tileSize * mapRoot.scaleX * cssScaleX
+  const cropPlots = ranchMapContract.cropPlots.map((plot) => {
+    const tileCenterWorldX = (plot.x + 0.5) * ranchMapContract.tileSize
+    const tileCenterWorldY = (plot.y + 0.5) * ranchMapContract.tileSize
+
+    return {
+      id: plot.id,
+      x: plot.x,
+      y: plot.y,
+      center: {
+        x: (mapRoot.x + tileCenterWorldX * mapRoot.scaleX) * cssScaleX,
+        y: (mapRoot.y + tileCenterWorldY * mapRoot.scaleY) * cssScaleY,
+      },
+    }
+  })
+  const visibleCropPlotCount = cropPlots.filter((plot) => {
+    return (
+      plot.center.x >= 0 &&
+      plot.center.x <= rect.width &&
+      plot.center.y >= 0 &&
+      plot.center.y <= rect.height
+    )
+  }).length
+
+  return {
+    widthTiles: ranchMapContract.width,
+    heightTiles: ranchMapContract.height,
+    tileSize: ranchMapContract.tileSize,
+    mapScale: mapRoot.scaleX,
+    mapBounds,
+    cropPlotCount: ranchMapContract.cropPlots.length,
+    visibleCropPlotCount,
+    cropPlotCssSize,
+    cropPlots,
+    decorationSpriteCount: ranchMapContract.spritePlacements.filter(
+      (placement) => placement.key === 'tiny-ranch-decorations',
+    ).length,
   }
 }
 
@@ -875,6 +969,7 @@ export function installSmokeHarness(game: Phaser.Game): void {
     getBarnUiSnapshot: (): BarnUiSnapshot => getBarnUiSnapshot(game),
     getReturnSessionSummaryModalSnapshot: (): ReturnSessionSummaryModalSnapshot =>
       getReturnSessionSummaryModalSnapshot(game),
+    getRanchMapSnapshot: (): RanchMapSmokeSnapshot => getRanchMapSnapshot(game),
     debugStartBarnJob: (recipeId: BarnProcessingRecipeId): BarnStartDebugResult =>
       debugStartBarnJob(game, recipeId),
     debugClaimBarnJob: (jobId: string): BarnClaimDebugResult => debugClaimBarnJob(game, jobId),

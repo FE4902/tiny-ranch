@@ -34,6 +34,12 @@ export interface RanchLandmark extends TileRect {
   kind: 'structure' | 'crop' | 'animal' | 'economy' | 'utility'
 }
 
+export interface RanchCropPlot {
+  id: string
+  x: number
+  y: number
+}
+
 export interface RanchSpritePlacement {
   id: string
   key:
@@ -42,10 +48,11 @@ export interface RanchSpritePlacement {
     | 'tiny-ranch-crops'
     | 'tiny-ranch-animals'
     | 'tiny-ranch-items'
+    | 'tiny-ranch-decorations'
   frame: number
   tileX: number
   tileY: number
-  layer: 'terrain' | 'structure' | 'crop' | 'animal' | 'item'
+  layer: 'terrain' | 'decor' | 'structure' | 'crop' | 'animal' | 'item'
 }
 
 export interface RanchMapContract {
@@ -63,6 +70,7 @@ export interface RanchMapContract {
   pathPatches: TileRect[]
   soilPatches: TileRect[]
   waterPatches: TileRect[]
+  cropPlots: RanchCropPlot[]
   zones: RanchZone[]
   collisionTiles: RanchCollisionTile[]
   landmarks: RanchLandmark[]
@@ -74,6 +82,16 @@ const SILO_FOOTPRINT: TileRect = { x: 15, y: 4, width: 2, height: 2 }
 const SHIPPING_FOOTPRINT: TileRect = { x: 2, y: 6, width: 2, height: 2 }
 const POND_FOOTPRINT: TileRect = { x: 18, y: 2, width: 3, height: 3 }
 const PEN_AREA: TileRect = { x: 13, y: 8, width: 7, height: 6 }
+const MAIN_CROP_AREA: TileRect = { x: 2, y: 10, width: 7, height: 5 }
+
+const DECORATION_FOOTPRINTS: TileRect[] = [
+  { x: 0, y: 2, width: 1, height: 1 },
+  { x: 1, y: 15, width: 1, height: 1 },
+  { x: 6, y: 2, width: 1, height: 1 },
+  { x: 18, y: 6, width: 1, height: 1 },
+  { x: 21, y: 12, width: 1, height: 1 },
+  { x: 20, y: 16, width: 1, height: 1 },
+]
 
 const PEN_GATE: TileRect = { x: 16, y: 13, width: 2, height: 1 }
 
@@ -194,6 +212,75 @@ function createFencePlacements(): RanchSpritePlacement[] {
   return placements
 }
 
+function createCropPlots(rect: TileRect): RanchCropPlot[] {
+  const plots: RanchCropPlot[] = []
+
+  for (let y = rect.y; y < rect.y + rect.height; y += 1) {
+    for (let x = rect.x; x < rect.x + rect.width; x += 1) {
+      plots.push({
+        id: `crop-plot-${x}-${y}`,
+        x,
+        y,
+      })
+    }
+  }
+
+  return plots
+}
+
+function createDecorationPlacements(): RanchSpritePlacement[] {
+  return [
+    {
+      id: 'orchard-tree-west',
+      key: 'tiny-ranch-decorations',
+      frame: 8,
+      tileX: 0,
+      tileY: 2,
+      layer: 'decor',
+    },
+    {
+      id: 'flower-clump-north',
+      key: 'tiny-ranch-decorations',
+      frame: 6,
+      tileX: 6,
+      tileY: 2,
+      layer: 'decor',
+    },
+    {
+      id: 'rock-by-pond',
+      key: 'tiny-ranch-decorations',
+      frame: 45,
+      tileX: 18,
+      tileY: 6,
+      layer: 'decor',
+    },
+    {
+      id: 'wildflower-crop-edge',
+      key: 'tiny-ranch-decorations',
+      frame: 4,
+      tileX: 1,
+      tileY: 15,
+      layer: 'decor',
+    },
+    {
+      id: 'grass-clump-east',
+      key: 'tiny-ranch-decorations',
+      frame: 30,
+      tileX: 21,
+      tileY: 12,
+      layer: 'decor',
+    },
+    {
+      id: 'stump-south',
+      key: 'tiny-ranch-decorations',
+      frame: 40,
+      tileX: 20,
+      tileY: 16,
+      layer: 'decor',
+    },
+  ]
+}
+
 export const ranchMapContract: RanchMapContract = {
   width: RANCH_MAP_WIDTH,
   height: RANCH_MAP_HEIGHT,
@@ -213,8 +300,9 @@ export const ranchMapContract: RanchMapContract = {
     { x: 12, y: 10, width: 4, height: 2 },
     { x: 2, y: 7, width: 3, height: 2 },
   ],
-  soilPatches: [{ x: 2, y: 10, width: 7, height: 5 }],
+  soilPatches: [MAIN_CROP_AREA],
   waterPatches: [POND_FOOTPRINT],
+  cropPlots: createCropPlots(MAIN_CROP_AREA),
   zones: [
     {
       id: 'barn_entry',
@@ -229,10 +317,10 @@ export const ranchMapContract: RanchMapContract = {
       id: 'crop_area',
       label: 'Crop Area',
       purpose: 'farming',
-      x: 2,
-      y: 10,
-      width: 7,
-      height: 5,
+      x: MAIN_CROP_AREA.x,
+      y: MAIN_CROP_AREA.y,
+      width: MAIN_CROP_AREA.width,
+      height: MAIN_CROP_AREA.height,
     },
     {
       id: 'animal_pen',
@@ -276,6 +364,7 @@ export const ranchMapContract: RanchMapContract = {
     ...expandRect(SILO_FOOTPRINT, 'structure'),
     ...expandRect(SHIPPING_FOOTPRINT, 'prop'),
     ...expandRect(POND_FOOTPRINT, 'water'),
+    ...DECORATION_FOOTPRINTS.flatMap((footprint) => expandRect(footprint, 'prop')),
     ...createPerimeterCollision(PEN_AREA, 'fence', PEN_GATE),
   ]),
   landmarks: [
@@ -308,6 +397,7 @@ export const ranchMapContract: RanchMapContract = {
     { id: 'animal-1', key: 'tiny-ranch-animals', frame: 0, tileX: 15, tileY: 10, layer: 'animal' },
     { id: 'animal-2', key: 'tiny-ranch-animals', frame: 3, tileX: 17, tileY: 11, layer: 'animal' },
     { id: 'animal-3', key: 'tiny-ranch-animals', frame: 18, tileX: 14, tileY: 12, layer: 'animal' },
+    ...createDecorationPlacements(),
     ...createFencePlacements(),
   ],
 }

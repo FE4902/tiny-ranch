@@ -151,10 +151,11 @@ const animalSlotConfigByPlacementId: Readonly<Record<string, AnimalProductionId>
 
 const layerOrder: Record<RanchSpritePlacement['layer'], number> = {
   terrain: 1,
-  structure: 2,
-  crop: 3,
-  item: 4,
-  animal: 5,
+  decor: 2,
+  structure: 3,
+  crop: 4,
+  item: 5,
+  animal: 6,
 }
 
 export class RanchScene extends Phaser.Scene {
@@ -253,6 +254,7 @@ export class RanchScene extends Phaser.Scene {
     this.renderTerrainLayer(ranchMapContract)
     this.renderPatchLayer(ranchMapContract, ranchMapContract.pathPatches, ranchMapContract.pathFrameCycle)
     this.renderPatchLayer(ranchMapContract, ranchMapContract.soilPatches, ranchMapContract.soilFrameCycle)
+    this.renderCropPlotLayer(ranchMapContract)
     this.renderPatchLayer(ranchMapContract, ranchMapContract.waterPatches, ranchMapContract.waterFrameCycle)
     this.renderSpriteLayer(ranchMapContract)
     this.renderZoneLayer(ranchMapContract)
@@ -333,6 +335,7 @@ export class RanchScene extends Phaser.Scene {
     this.registry.set('tiny-ranch:ranch-map-contract', ranchMapContract)
     this.registry.set('tiny-ranch:ranch-map-spawn-tile', ranchMapContract.spawnTile)
     this.registry.set('tiny-ranch:ranch-map-zones', ranchMapContract.zones)
+    this.registry.set('tiny-ranch:ranch-map-crop-plots', ranchMapContract.cropPlots)
     this.registry.set('tiny-ranch:ranch-map-collision-tiles', ranchMapContract.collisionTiles)
 
     this.game.events.emit('tiny-ranch:ranch-map-ready', ranchMapContract)
@@ -340,8 +343,12 @@ export class RanchScene extends Phaser.Scene {
       widthTiles: ranchMapContract.width,
       heightTiles: ranchMapContract.height,
       zones: ranchMapContract.zones.length,
+      cropPlots: ranchMapContract.cropPlots.length,
       collisions: ranchMapContract.collisionTiles.length,
       landmarks: ranchMapContract.landmarks.length,
+      decorations: ranchMapContract.spritePlacements.filter(
+        (placement) => placement.key === 'tiny-ranch-decorations',
+      ).length,
       spawnTile: `${ranchMapContract.spawnTile.x},${ranchMapContract.spawnTile.y}`,
     })
     services.telemetry.track('player_spawned', {
@@ -3256,6 +3263,24 @@ export class RanchScene extends Phaser.Scene {
           this.mapRoot?.add(tile)
         }
       }
+    })
+  }
+
+  private renderCropPlotLayer(contract: RanchMapContract): void {
+    const tileSize = contract.tileSize
+
+    contract.cropPlots.forEach((plot, index) => {
+      const x = plot.x * tileSize + 1
+      const y = plot.y * tileSize + 1
+      const size = tileSize - 2
+      const fillColor = index % 2 === 0 ? 0x2f6f45 : 0x275c3d
+      const plotFrame = this.add
+        .rectangle(x, y, size, size, fillColor, 0.18)
+        .setOrigin(0)
+        .setStrokeStyle(1, 0xe2c06a, 0.42)
+        .setName(plot.id)
+
+      this.mapRoot?.add(plotFrame)
     })
   }
 

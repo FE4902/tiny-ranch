@@ -62,6 +62,32 @@ type CanvasRenderingSnapshot = {
   imageRendering: string
 }
 
+type RanchMapSnapshot = {
+  widthTiles: number
+  heightTiles: number
+  tileSize: number
+  mapScale: number
+  mapBounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  cropPlotCount: number
+  visibleCropPlotCount: number
+  cropPlotCssSize: number
+  cropPlots: Array<{
+    id: string
+    x: number
+    y: number
+    center: {
+      x: number
+      y: number
+    }
+  }>
+  decorationSpriteCount: number
+}
+
 function resolveLaunchMetadata(): LaunchMetadata {
   const readMeta = (selector: string): string | null =>
     document.querySelector<HTMLMetaElement>(selector)?.content ?? null
@@ -181,6 +207,22 @@ async function getCanvasRenderingSnapshot(page: Page): Promise<CanvasRenderingSn
   })
 }
 
+async function getRanchMapSnapshot(page: Page): Promise<RanchMapSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getRanchMapSnapshot: () => RanchMapSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getRanchMapSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
 test('production launch shell exposes metadata and boots the game', async ({ page }) => {
   const consoleErrors: string[] = []
   const pageErrors: string[] = []
@@ -251,6 +293,41 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
   const snapshot = await getSnapshot(page)
   expect(snapshot.activeScene).toBe('ranch')
 
+  const canvas = await getCanvasRenderingSnapshot(page)
+  expect(canvas.canvasCount).toBe(1)
+  expect(canvas.width).toBeGreaterThan(0)
+  expect(canvas.height).toBeGreaterThan(0)
+  expect(canvas.cssWidth).toBeGreaterThan(0)
+  expect(canvas.cssHeight).toBeGreaterThan(0)
+  expect(['crisp-edges', 'pixelated']).toContain(canvas.imageRendering)
+
+  const ranchMap = await getRanchMapSnapshot(page)
+  expect(ranchMap.widthTiles).toBe(22)
+  expect(ranchMap.heightTiles).toBe(18)
+  expect(ranchMap.tileSize).toBe(16)
+  expect(ranchMap.cropPlotCount).toBeGreaterThanOrEqual(6)
+  expect(ranchMap.visibleCropPlotCount).toBe(ranchMap.cropPlotCount)
+  expect(ranchMap.cropPlotCssSize).toBeGreaterThanOrEqual(10)
+  expect(ranchMap.decorationSpriteCount).toBeGreaterThanOrEqual(1)
+  expect(ranchMap.mapBounds.x).toBeGreaterThanOrEqual(0)
+  expect(ranchMap.mapBounds.y).toBeGreaterThanOrEqual(0)
+  expect(ranchMap.mapBounds.x + ranchMap.mapBounds.width).toBeLessThanOrEqual(
+    canvas.cssWidth + 1,
+  )
+  expect(ranchMap.mapBounds.y + ranchMap.mapBounds.height).toBeLessThanOrEqual(
+    canvas.cssHeight + 1,
+  )
+  expect(ranchMap.cropPlots.slice(0, 6)).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ id: 'crop-plot-2-10', x: 2, y: 10 }),
+      expect.objectContaining({ id: 'crop-plot-3-10', x: 3, y: 10 }),
+      expect.objectContaining({ id: 'crop-plot-4-10', x: 4, y: 10 }),
+      expect.objectContaining({ id: 'crop-plot-5-10', x: 5, y: 10 }),
+      expect.objectContaining({ id: 'crop-plot-6-10', x: 6, y: 10 }),
+      expect.objectContaining({ id: 'crop-plot-7-10', x: 7, y: 10 }),
+    ]),
+  )
+
   const preloadAssets = await getPreloadAssetSnapshot(page)
   expect(preloadAssets.allLoaded).toBe(true)
   expect(preloadAssets.totalSheetCount).toBe(EXPECTED_TINY_RANCH_SPRITESHEET_KEYS.length)
@@ -267,13 +344,6 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
     )
   })
 
-  const canvas = await getCanvasRenderingSnapshot(page)
-  expect(canvas.canvasCount).toBe(1)
-  expect(canvas.width).toBeGreaterThan(0)
-  expect(canvas.height).toBeGreaterThan(0)
-  expect(canvas.cssWidth).toBeGreaterThan(0)
-  expect(canvas.cssHeight).toBeGreaterThan(0)
-  expect(['crisp-edges', 'pixelated']).toContain(canvas.imageRendering)
   expect(consoleErrors).toEqual([])
   expect(pageErrors).toEqual([])
 })
