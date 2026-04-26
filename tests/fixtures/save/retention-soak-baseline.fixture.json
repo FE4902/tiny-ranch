@@ -2,7 +2,7 @@
   "seed": 691,
   "soakMultiplier": 8,
   "saveInterval": 5,
-  "generatedAt": "2026-04-13T12:13:03.774Z",
+  "generatedAt": "2026-04-26T04:44:49.376Z",
   "matrix": [
     {
       "caseKey": "daily_claim_streak::000",
@@ -125,16 +125,16 @@
         "streakBonusEnabled": false,
         "retentionKillSwitchEnabled": false
       },
-      "digest": "e97fa83a7f70815ea40ecab396b2c4f5f66851c2be4a2396d54f047b94957aad",
+      "digest": "7fa821c0f2163ac13699bbb8febb06ddfcb465df4cef9fc38e1cf3832c4d9edc",
       "stats": {
         "sessionCount": 224,
         "claimCount": 224,
         "saveLoadCount": 45,
         "cappedSpendCount": 0,
-        "currencyEarned": 8064,
+        "currencyEarned": 7618,
         "currencySpent": 1680,
         "streakBonusTotal": 0,
-        "finalCurrency": 6384,
+        "finalCurrency": 5938,
         "finalAssignmentCycle": 224,
         "finalStreakTier": 0
       }
@@ -179,16 +179,16 @@
         "streakBonusEnabled": true,
         "retentionKillSwitchEnabled": false
       },
-      "digest": "2a61a4ba272a9b486c29d6a8b28cbd40f8a32bca6ea4123e566d29fe04efb6cb",
+      "digest": "2701f687c88bbf2f2ac28de844d77f0bd58619eb89497da909d6ad4f863e2bac",
       "stats": {
         "sessionCount": 224,
         "claimCount": 224,
         "saveLoadCount": 45,
         "cappedSpendCount": 0,
-        "currencyEarned": 14700,
+        "currencyEarned": 14033,
         "currencySpent": 1680,
-        "streakBonusTotal": 6636,
-        "finalCurrency": 13020,
+        "streakBonusTotal": 6415,
+        "finalCurrency": 12353,
         "finalAssignmentCycle": 224,
         "finalStreakTier": 5
       }
@@ -341,16 +341,16 @@
         "streakBonusEnabled": false,
         "retentionKillSwitchEnabled": false
       },
-      "digest": "380935a8b2878dc12043355f1aa806267cf244b78d0e458817202a4b961f8e29",
+      "digest": "40799d38fd60987c941bd6eeb4cba267f505897c03c975ecd5d0d01abefd1ddb",
       "stats": {
         "sessionCount": 224,
         "claimCount": 224,
         "saveLoadCount": 45,
         "cappedSpendCount": 0,
-        "currencyEarned": 8064,
+        "currencyEarned": 7618,
         "currencySpent": 1598,
         "streakBonusTotal": 0,
-        "finalCurrency": 6466,
+        "finalCurrency": 6020,
         "finalAssignmentCycle": 224,
         "finalStreakTier": 0
       }
@@ -395,16 +395,16 @@
         "streakBonusEnabled": true,
         "retentionKillSwitchEnabled": false
       },
-      "digest": "e18a91de0a09bd37c848421f5a51092bf564377e46e4fb984cbfb35f147018fc",
+      "digest": "02b2d4e0d3ec8e254141d75ed121329af6a459fbd73f6dc71b72c644f689e704",
       "stats": {
         "sessionCount": 224,
         "claimCount": 224,
         "saveLoadCount": 45,
         "cappedSpendCount": 0,
-        "currencyEarned": 14174,
+        "currencyEarned": 13519,
         "currencySpent": 1598,
-        "streakBonusTotal": 6110,
-        "finalCurrency": 12576,
+        "streakBonusTotal": 5901,
+        "finalCurrency": 11921,
         "finalAssignmentCycle": 224,
         "finalStreakTier": 5
       }

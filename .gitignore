@@ -14,6 +14,7 @@ artifacts/retention-health
 artifacts/retention-release-gate
 artifacts/retention-baseline-diff
 artifacts/barn-mvp-release-gate
+artifacts/mvp-release-candidate-gate
 *.local
 
 # Editor directories and files

@@ -277,6 +277,31 @@ claim protection. It writes:
 
 For stage order and Barn lane triage, see `docs/ver-120-barn-mvp-release-gate.md`.
 
+Run the top-level MVP release-candidate gate with:
+
+```bash
+npm run gate:mvp:release
+```
+
+This is the launch signoff command after [VER-120](/VER/issues/VER-120). It reuses the existing
+production build, bundle budget, desktop/mobile smoke, save migration smoke, retention release
+gate, and Barn MVP gate in deterministic order. It writes:
+
+- `artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-summary.json`
+- `artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-summary.md`
+- `artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-artifact-index.json`
+- `artifacts/mvp-release-candidate-gate/logs/*.log`
+- `artifacts/mvp-release-candidate-gate/reports/*.playwright.json`
+
+Default mode is fail-fast. For broader local triage, run:
+
+```bash
+npm run gate:mvp:release -- --no-fail-fast
+```
+
+For stage ownership, artifact mapping, and launch-candidate triage, see
+`docs/ver-121-mvp-release-candidate-gate.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration

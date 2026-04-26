@@ -232,6 +232,57 @@ jobs:
           path: artifacts/barn-mvp-release-gate
           if-no-files-found: error
 
+  mvp-release-candidate-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run MVP release-candidate gate
+        run: npm run gate:mvp:release
+
+      - name: Publish MVP release-candidate summary to CI job summary
+        if: always()
+        run: |
+          SUMMARY_PATH="artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-summary.md"
+          INDEX_PATH="artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-artifact-index.json"
+
+          if [ -f "$SUMMARY_PATH" ]; then
+            cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Tiny Ranch MVP Release-Candidate Gate" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Summary artifact missing: \`$SUMMARY_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          if [ -f "$INDEX_PATH" ]; then
+            echo "Artifact index JSON: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Artifact index JSON missing: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload MVP release-candidate gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mvp-release-candidate-gate
+          path: artifacts/mvp-release-candidate-gate
+          if-no-files-found: error
+
   core-loop-smoke:
     runs-on: ubuntu-latest
     steps:
