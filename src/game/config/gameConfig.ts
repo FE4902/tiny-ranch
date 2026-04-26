@@ -23,8 +23,8 @@ export function createGameConfig(parent: string): Phaser.Types.Core.GameConfig {
       height: GAME_HEIGHT,
     },
     render: {
-      antialias: true,
-      pixelArt: false,
+      antialias: false,
+      pixelArt: true,
       powerPreference: 'high-performance',
     },
   }

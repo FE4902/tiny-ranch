@@ -87,6 +87,7 @@ body {
 
 .game-root canvas {
   display: block;
+  image-rendering: pixelated;
 }
 
 @media (max-width: 960px) {

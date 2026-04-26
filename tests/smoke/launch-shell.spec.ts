@@ -28,6 +28,15 @@ type SmokeSnapshot = {
   activeScene: string | null
 }
 
+type CanvasRenderingSnapshot = {
+  canvasCount: number
+  width: number
+  height: number
+  cssWidth: number
+  cssHeight: number
+  imageRendering: string
+}
+
 function resolveLaunchMetadata(): LaunchMetadata {
   const readMeta = (selector: string): string | null =>
     document.querySelector<HTMLMetaElement>(selector)?.content ?? null
@@ -111,7 +120,39 @@ async function getSnapshot(page: Page): Promise<SmokeSnapshot> {
   }, SMOKE_HARNESS_KEY)
 }
 
+async function getCanvasRenderingSnapshot(page: Page): Promise<CanvasRenderingSnapshot> {
+  return page.evaluate(() => {
+    const canvases = Array.from(document.querySelectorAll<HTMLCanvasElement>('#game-root canvas'))
+    const canvas = canvases[0]
+    if (!canvas) {
+      throw new Error('Tiny Ranch canvas was not mounted.')
+    }
+
+    const bounds = canvas.getBoundingClientRect()
+    return {
+      canvasCount: canvases.length,
+      width: canvas.width,
+      height: canvas.height,
+      cssWidth: bounds.width,
+      cssHeight: bounds.height,
+      imageRendering: window.getComputedStyle(canvas).imageRendering,
+    }
+  })
+}
+
 test('production launch shell exposes metadata and boots the game', async ({ page }) => {
+  const consoleErrors: string[] = []
+  const pageErrors: string[] = []
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text())
+    }
+  })
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message)
+  })
+
   await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
 
   const metadata = await page.evaluate(resolveLaunchMetadata)
@@ -168,4 +209,14 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
 
   const snapshot = await getSnapshot(page)
   expect(snapshot.activeScene).toBe('ranch')
+
+  const canvas = await getCanvasRenderingSnapshot(page)
+  expect(canvas.canvasCount).toBe(1)
+  expect(canvas.width).toBeGreaterThan(0)
+  expect(canvas.height).toBeGreaterThan(0)
+  expect(canvas.cssWidth).toBeGreaterThan(0)
+  expect(canvas.cssHeight).toBeGreaterThan(0)
+  expect(['crisp-edges', 'pixelated']).toContain(canvas.imageRendering)
+  expect(consoleErrors).toEqual([])
+  expect(pageErrors).toEqual([])
 })
