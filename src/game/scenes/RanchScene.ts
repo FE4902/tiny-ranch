@@ -2833,10 +2833,13 @@ export class RanchScene extends Phaser.Scene {
   ): boolean {
     const services = getGameServices(this)
     const sellPriceMultiplier = this.getUpgradeEffectsSnapshot().sellPriceMultiplier
+    const orderFulfillment = services.fulfillBarnMarketOrders(
+      `ranch:${sellPointId}:${inputSource}`,
+    )
     const inventory = services.getInventorySnapshot()
     const saleCandidates = Object.entries(inventory).filter((entry) => entry[1] > 0)
 
-    if (saleCandidates.length === 0) {
+    if (saleCandidates.length === 0 && orderFulfillment.fulfilledOrderCount === 0) {
       this.showInteractionFeedback('Inventory is empty. Nothing to sell.', FEEDBACK_COLOR_ERROR)
       this.trackInventorySold(
         'empty',
@@ -2851,10 +2854,10 @@ export class RanchScene extends Phaser.Scene {
       return false
     }
 
-    let soldLineItems = 0
-    let soldQuantity = 0
-    let totalRevenue = 0
-    let latestBalance = services.getCurrencyBalance()
+    let soldLineItems = orderFulfillment.fulfilledOrderCount
+    let soldQuantity = orderFulfillment.consumedQuantity
+    let totalRevenue = orderFulfillment.totalPayout
+    let latestBalance = orderFulfillment.balance
 
     saleCandidates.forEach(([itemId, quantity]) => {
       const unitPrice = this.resolveEffectiveSellUnitPrice(itemId)
@@ -2873,10 +2876,23 @@ export class RanchScene extends Phaser.Scene {
 
     this.refreshInventoryUi()
     this.refreshCurrencyUi()
-    this.showInteractionFeedback(
-      `Sold ${soldQuantity} item${soldQuantity === 1 ? '' : 's'} for ${totalRevenue} coins.`,
-      FEEDBACK_COLOR_SUCCESS,
-    )
+    const genericSoldQuantity = soldQuantity - orderFulfillment.consumedQuantity
+    if (orderFulfillment.fulfilledOrderCount > 0 && genericSoldQuantity > 0) {
+      this.showInteractionFeedback(
+        `Fulfilled ${orderFulfillment.fulfilledOrderCount} market order${orderFulfillment.fulfilledOrderCount === 1 ? '' : 's'} and sold ${genericSoldQuantity} extra item${genericSoldQuantity === 1 ? '' : 's'} for ${totalRevenue} coins.`,
+        FEEDBACK_COLOR_SUCCESS,
+      )
+    } else if (orderFulfillment.fulfilledOrderCount > 0) {
+      this.showInteractionFeedback(
+        `Fulfilled ${orderFulfillment.fulfilledOrderCount} market order${orderFulfillment.fulfilledOrderCount === 1 ? '' : 's'} for ${totalRevenue} coins.`,
+        FEEDBACK_COLOR_SUCCESS,
+      )
+    } else {
+      this.showInteractionFeedback(
+        `Sold ${soldQuantity} item${soldQuantity === 1 ? '' : 's'} for ${totalRevenue} coins.`,
+        FEEDBACK_COLOR_SUCCESS,
+      )
+    }
     this.trackInventorySold(
       'sold',
       sellPointId,

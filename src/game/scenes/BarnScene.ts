@@ -8,7 +8,7 @@ import {
   type BarnProcessingRecipeId,
 } from '../config/barn'
 import { SCENE_KEYS } from '../constants'
-import { getGameServices } from '../systems/runtime'
+import { getGameServices, type BarnMarketOrderSnapshot } from '../systems/runtime'
 import { BasePlayScene } from './BasePlayScene'
 import { TextButton } from '../ui/TextButton'
 
@@ -309,7 +309,7 @@ export class BarnScene extends BasePlayScene {
         selectedRecipe.description,
       ].join('\n'),
     )
-    this.jobListText.setText(this.buildJobListText(barnState.jobs))
+    this.jobListText.setText(this.buildBarnListText(barnState.jobs, barnState.marketOrders))
   }
 
   private layoutBarnUi(): void {
@@ -389,24 +389,36 @@ export class BarnScene extends BasePlayScene {
       .join(', ')
   }
 
-  private buildJobListText(
+  private buildBarnListText(
     jobs: readonly {
       label: string
       isReady: boolean
       remainingMs: number
       outputs: readonly BarnProcessingLineItem[]
     }[],
+    marketOrders: readonly BarnMarketOrderSnapshot[],
   ): string {
-    if (jobs.length === 0) {
-      return 'Queue\nNo Barn jobs queued.'
-    }
+    const queueLines =
+      jobs.length === 0
+        ? ['No Barn jobs queued.']
+        : jobs.slice(0, 4).map((job, index) => {
+            const status = job.isReady ? 'ready' : this.formatDurationLabel(job.remainingMs)
+            return `${index + 1}. ${job.label} -> ${this.formatLineItems(job.outputs)} (${status})`
+          })
+    const orderLines = marketOrders.slice(0, 3).map((order, index) => {
+      const status = order.isFulfilled
+        ? 'fulfilled'
+        : order.isClaimable
+          ? 'ready'
+          : 'need goods'
+      return `${index + 1}. ${order.label}: ${this.formatLineItems(order.requiredItems)} -> ${order.payout} coins (+${order.premiumValue}) ${status}`
+    })
 
     return [
       'Queue',
-      ...jobs.slice(0, 6).map((job, index) => {
-        const status = job.isReady ? 'ready' : this.formatDurationLabel(job.remainingMs)
-        return `${index + 1}. ${job.label} -> ${this.formatLineItems(job.outputs)} (${status})`
-      }),
+      ...queueLines,
+      'Market Orders',
+      ...(orderLines.length > 0 ? orderLines : ['No market orders configured.']),
     ].join('\n')
   }
 

@@ -12,6 +12,15 @@ type BarnSnapshot = {
     isReady: boolean
     remainingMs: number
   }>
+  marketOrders: Array<{
+    orderId: string
+    payout: number
+    baseSellValue: number
+    premiumValue: number
+    isFulfilled: boolean
+    isClaimable: boolean
+    fulfilledAtEpochMs: number | null
+  }>
 }
 
 type BarnStartDebugResult = {
@@ -26,6 +35,12 @@ type BarnClaimDebugResult = {
   recipeId: string | null
   balance: number
   jobCount: number
+}
+
+type InventorySellDebugResult = {
+  sold: boolean
+  balance: number
+  inventory: Record<string, number>
 }
 
 type ReturnObjectiveSnapshot = {
@@ -162,6 +177,22 @@ async function debugClaimBarnJob(page: Page, jobId: string): Promise<BarnClaimDe
     },
     { harnessKey: SMOKE_HARNESS_KEY, jobId },
   )
+}
+
+async function debugSellInventory(page: Page): Promise<InventorySellDebugResult> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          debugSellInventory: () => InventorySellDebugResult
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.debugSellInventory()
+  }, SMOKE_HARNESS_KEY)
 }
 
 async function debugSaveGameState(page: Page): Promise<void> {
@@ -334,11 +365,20 @@ test('legacy save without barn state hydrates to an empty barn queue and resaves
 
   const barnSnapshot = await getBarnSnapshot(page)
   expect(barnSnapshot.jobs).toHaveLength(0)
+  expect(barnSnapshot.marketOrders).toHaveLength(3)
+  expect(barnSnapshot.marketOrders.every((order) => !order.isFulfilled)).toBe(true)
 
   await debugSaveGameState(page)
   const rawSave = await readRawSavePayload(page)
   expect(rawSave).not.toBeNull()
-  expect(rawSave?.barn).toEqual({ jobs: [] })
+  expect(rawSave?.barn).toMatchObject({
+    jobs: [],
+    marketOrders: [
+      { orderId: 'creamery_delivery', fulfilledAtEpochMs: null },
+      { orderId: 'feedlot_supplement', fulfilledAtEpochMs: null },
+      { orderId: 'weaver_contract', fulfilledAtEpochMs: null },
+    ],
+  })
 })
 
 test('barn jobs survive reload, become claimable, and persist their outputs', async ({ page }) => {
@@ -502,4 +542,58 @@ test('barn claim progress completes the Barn return objective without bypassing 
   const finalBarnSnapshot = await getBarnSnapshot(page)
   expect(finalBarnSnapshot.jobs).toHaveLength(0)
   expect(finalBarnSnapshot.inventory.cheese).toBe(1)
+})
+
+test('barn market order pays a deterministic premium and cannot be claimed again after reload', async ({
+  page,
+}) => {
+  await launchSmokeSession(page)
+
+  await debugSeedInventory(page, 'cheese', 1)
+
+  const claimableSnapshot = await getBarnSnapshot(page)
+  const creameryOrder = claimableSnapshot.marketOrders.find(
+    (order) => order.orderId === 'creamery_delivery',
+  )
+  expect(creameryOrder).toBeDefined()
+  expect(creameryOrder?.payout).toBe(84)
+  expect(creameryOrder?.baseSellValue).toBe(60)
+  expect(creameryOrder?.premiumValue).toBe(24)
+  expect(creameryOrder?.isClaimable).toBe(true)
+
+  const fulfillment = await debugSellInventory(page)
+  expect(fulfillment.sold).toBe(true)
+  expect(fulfillment.balance).toBe(84)
+  expect(fulfillment.inventory.cheese ?? 0).toBe(0)
+
+  const fulfilledSnapshot = await getBarnSnapshot(page)
+  const fulfilledOrder = fulfilledSnapshot.marketOrders.find(
+    (order) => order.orderId === 'creamery_delivery',
+  )
+  expect(fulfilledOrder?.isFulfilled).toBe(true)
+  expect(fulfilledOrder?.fulfilledAtEpochMs).not.toBeNull()
+
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await waitForSmokeHarness(page)
+
+  const reloadedSnapshot = await getBarnSnapshot(page)
+  const reloadedOrder = reloadedSnapshot.marketOrders.find(
+    (order) => order.orderId === 'creamery_delivery',
+  )
+  expect(reloadedOrder?.isFulfilled).toBe(true)
+  expect(reloadedOrder?.isClaimable).toBe(false)
+  expect(reloadedSnapshot.balance).toBe(84)
+
+  await debugSeedInventory(page, 'cheese', 1)
+  const duplicateAttempt = await debugSellInventory(page)
+  expect(duplicateAttempt.sold).toBe(true)
+  expect(duplicateAttempt.balance).toBe(144)
+  expect(duplicateAttempt.inventory.cheese ?? 0).toBe(0)
+
+  const afterDuplicateAttempt = await getBarnSnapshot(page)
+  const afterOrder = afterDuplicateAttempt.marketOrders.find(
+    (order) => order.orderId === 'creamery_delivery',
+  )
+  expect(afterOrder?.isFulfilled).toBe(true)
+  expect(afterDuplicateAttempt.balance).toBe(144)
 })

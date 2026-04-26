@@ -115,10 +115,21 @@ interface BarnJobSnapshot {
   remainingMs: number
 }
 
+interface BarnMarketOrderSnapshot {
+  orderId: string
+  payout: number
+  baseSellValue: number
+  premiumValue: number
+  isFulfilled: boolean
+  isClaimable: boolean
+  fulfilledAtEpochMs: number | null
+}
+
 interface BarnSnapshot {
   balance: number
   inventory: Record<string, number>
   jobs: BarnJobSnapshot[]
+  marketOrders: BarnMarketOrderSnapshot[]
 }
 
 interface BarnStartDebugResult {
@@ -133,6 +144,12 @@ interface BarnClaimDebugResult {
   recipeId: string | null
   balance: number
   jobCount: number
+}
+
+interface InventorySellDebugResult {
+  sold: boolean
+  balance: number
+  inventory: Record<string, number>
 }
 
 interface BarnUiSnapshot {
@@ -164,6 +181,7 @@ interface TinyRanchSmokeHarness {
   getReturnSessionSummaryModalSnapshot(): ReturnSessionSummaryModalSnapshot
   debugStartBarnJob(recipeId: BarnProcessingRecipeId): BarnStartDebugResult
   debugClaimBarnJob(jobId: string): BarnClaimDebugResult
+  debugSellInventory(sellPointId?: SellPointId): InventorySellDebugResult
   debugNavigate(sceneKey: PlayableSceneKey): void
   debugSaveGameState(): unknown
   debugPersistLegacySaveWithoutStreak(): void
@@ -633,6 +651,15 @@ function getBarnSnapshot(game: Phaser.Game): BarnSnapshot {
       isReady: job.isReady,
       remainingMs: job.remainingMs,
     })),
+    marketOrders: snapshot.marketOrders.map((order) => ({
+      orderId: order.orderId,
+      payout: order.payout,
+      baseSellValue: order.baseSellValue,
+      premiumValue: order.premiumValue,
+      isFulfilled: order.isFulfilled,
+      isClaimable: order.isClaimable,
+      fulfilledAtEpochMs: order.fulfilledAtEpochMs,
+    })),
   }
 }
 
@@ -689,6 +716,22 @@ function debugClaimBarnJob(game: Phaser.Game, jobId: string): BarnClaimDebugResu
   }
 }
 
+function debugSellInventory(
+  game: Phaser.Game,
+  sellPointId: SellPointId = 'shipping_crate',
+): InventorySellDebugResult {
+  const ranchScene = getRanchSceneOrThrow(game)
+  const sceneBindings = getDebugBindings(ranchScene)
+  const services = getGameServices(ranchScene)
+  const sold = sceneBindings.trySellInventory(sellPointId, 'pointer')
+
+  return {
+    sold,
+    balance: services.getCurrencyBalance(),
+    inventory: { ...services.getInventorySnapshot() },
+  }
+}
+
 function debugPersistLegacySaveWithoutStreak(game: Phaser.Game): void {
   const services = getGameServices(getServiceSceneOrThrow(game))
   const saveState = services.saveGameState()
@@ -731,6 +774,8 @@ export function installSmokeHarness(game: Phaser.Game): void {
     debugStartBarnJob: (recipeId: BarnProcessingRecipeId): BarnStartDebugResult =>
       debugStartBarnJob(game, recipeId),
     debugClaimBarnJob: (jobId: string): BarnClaimDebugResult => debugClaimBarnJob(game, jobId),
+    debugSellInventory: (sellPointId: SellPointId = 'shipping_crate'): InventorySellDebugResult =>
+      debugSellInventory(game, sellPointId),
     debugNavigate: (sceneKey: PlayableSceneKey): void => {
       debugNavigate(game, sceneKey)
     },

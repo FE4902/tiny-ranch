@@ -9,6 +9,12 @@ import {
   type BarnProcessingLineItem,
   type BarnProcessingRecipeId,
 } from '../config/barn'
+import {
+  barnMarketOrderConfigs,
+  getBarnMarketOrderConfig,
+  type BarnMarketOrderId,
+  type BarnMarketOrderLineItem,
+} from '../config/barnMarketOrders'
 import { cropSeedConfigs, defaultCropSeedId, type CropSeedId } from '../config/crops'
 import {
   clampExpansionTier,
@@ -70,9 +76,11 @@ import {
 } from './save/localStorageAdapter'
 import {
   DEFAULT_BARN_JOB_SOURCE,
+  DEFAULT_BARN_MARKET_ORDER_SOURCE,
   SAVE_SCHEMA_VERSION,
   type SaveAnimalStateV1,
   type SaveBarnJobStateV1,
+  type SaveBarnMarketOrderStateV1,
   type SaveBarnStateV1,
   type SaveCropStateV1,
   type SaveFtueStateV1,
@@ -153,8 +161,23 @@ export interface BarnJobSnapshot {
   isReady: boolean
 }
 
+export interface BarnMarketOrderSnapshot {
+  orderId: BarnMarketOrderId
+  label: string
+  description: string
+  requiredItems: readonly BarnMarketOrderLineItem[]
+  payout: number
+  baseSellValue: number
+  premiumValue: number
+  fulfilledAtEpochMs: number | null
+  source: string
+  isFulfilled: boolean
+  isClaimable: boolean
+}
+
 export interface BarnStateSnapshot {
   jobs: BarnJobSnapshot[]
+  marketOrders: BarnMarketOrderSnapshot[]
 }
 
 export interface BarnStartJobResult {
@@ -173,6 +196,27 @@ export interface BarnClaimJobResult {
   recipeId: BarnProcessingRecipeId | null
   outputs: BarnProcessingLineItem[]
   balance: CurrencyBalance
+  state: BarnStateSnapshot
+}
+
+export interface BarnMarketOrderFulfillment {
+  orderId: BarnMarketOrderId
+  label: string
+  requiredItems: readonly BarnMarketOrderLineItem[]
+  payout: number
+  baseSellValue: number
+  premiumValue: number
+  fulfilledAtEpochMs: number
+}
+
+export interface BarnMarketOrderFulfillmentResult {
+  result: 'fulfilled' | 'none'
+  fulfilledOrders: BarnMarketOrderFulfillment[]
+  fulfilledOrderCount: number
+  consumedQuantity: number
+  totalPayout: number
+  balance: CurrencyBalance
+  inventory: InventorySnapshot
   state: BarnStateSnapshot
 }
 
@@ -329,6 +373,7 @@ export interface GameServices {
   ) => BarnProcessingRecipeUnlockState
   startBarnJob: (recipeId: BarnProcessingRecipeId, source?: string) => BarnStartJobResult
   claimBarnJob: (jobId: string, source?: string) => BarnClaimJobResult
+  fulfillBarnMarketOrders: (source?: string) => BarnMarketOrderFulfillmentResult
   onBarnStateChanged: (listener: BarnStateChangeListener) => () => void
   getExpansionStateSnapshot: () => ExpansionStateSnapshot
   purchaseNextExpansionTier: (source?: string) => ExpansionPurchaseResult
@@ -372,6 +417,10 @@ function isCropSeedId(value: unknown): value is CropSeedId {
 
 function isBarnProcessingRecipeId(value: unknown): value is BarnProcessingRecipeId {
   return typeof value === 'string' && Object.hasOwn(barnProcessingRecipeConfigs, value)
+}
+
+function isBarnMarketOrderId(value: unknown): value is BarnMarketOrderId {
+  return typeof value === 'string' && Object.hasOwn(barnMarketOrderConfigs, value)
 }
 
 function isSaveCropState(value: unknown): value is SaveCropStateV1 {
@@ -439,6 +488,18 @@ function isSaveBarnJobState(value: unknown): value is SaveBarnJobStateV1 {
   )
 }
 
+function isSaveBarnMarketOrderState(value: unknown): value is SaveBarnMarketOrderStateV1 {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const order = value as Partial<SaveBarnMarketOrderStateV1>
+  return (
+    isBarnMarketOrderId(order.orderId) &&
+    (order.fulfilledAtEpochMs === null || isNonNegativeInteger(order.fulfilledAtEpochMs))
+  )
+}
+
 function normalizeBarnJobSource(value: unknown): string {
   if (typeof value !== 'string') {
     return DEFAULT_BARN_JOB_SOURCE
@@ -446,6 +507,15 @@ function normalizeBarnJobSource(value: unknown): string {
 
   const normalized = value.trim()
   return normalized.length > 0 ? normalized : DEFAULT_BARN_JOB_SOURCE
+}
+
+function normalizeBarnMarketOrderSource(value: unknown): string {
+  if (typeof value !== 'string') {
+    return DEFAULT_BARN_MARKET_ORDER_SOURCE
+  }
+
+  const normalized = value.trim()
+  return normalized.length > 0 ? normalized : DEFAULT_BARN_MARKET_ORDER_SOURCE
 }
 
 function normalizeBarnProcessedAtEpochMs(
@@ -460,6 +530,15 @@ function normalizeBarnProcessedAtEpochMs(
 }
 
 function cloneBarnLineItem(item: BarnProcessingLineItem): BarnProcessingLineItem {
+  return {
+    itemId: item.itemId,
+    quantity: item.quantity,
+  }
+}
+
+function cloneBarnMarketOrderLineItem(
+  item: BarnMarketOrderLineItem,
+): BarnMarketOrderLineItem {
   return {
     itemId: item.itemId,
     quantity: item.quantity,
@@ -501,6 +580,19 @@ function cloneBarnJobState(job: SaveBarnJobStateV1): SaveBarnJobStateV1 {
       job.readyAtEpochMs,
     ),
     source: normalizeBarnJobSource(job.source),
+  }
+}
+
+function cloneBarnMarketOrderState(
+  order: SaveBarnMarketOrderStateV1,
+): SaveBarnMarketOrderStateV1 {
+  return {
+    orderId: order.orderId,
+    fulfilledAtEpochMs:
+      order.fulfilledAtEpochMs === null || isNonNegativeInteger(order.fulfilledAtEpochMs)
+        ? order.fulfilledAtEpochMs
+        : null,
+    source: normalizeBarnMarketOrderSource(order.source),
   }
 }
 
@@ -575,12 +667,30 @@ function normalizeBarnSaveState(state: SaveBarnStateV1): SaveBarnStateV1 {
     return left.startedAtEpochMs - right.startedAtEpochMs
   })
 
+  const ordersById = new Map<BarnMarketOrderId, SaveBarnMarketOrderStateV1>()
+  const marketOrders = Array.isArray(state.marketOrders) ? state.marketOrders : []
+  for (const order of marketOrders) {
+    if (!isSaveBarnMarketOrderState(order) || ordersById.has(order.orderId)) {
+      continue
+    }
+
+    ordersById.set(order.orderId, cloneBarnMarketOrderState(order))
+  }
+
   return {
     jobs,
+    marketOrders: createDefaultBarnSaveState().marketOrders.map((defaultOrder) => {
+      const savedOrder = ordersById.get(defaultOrder.orderId)
+      return savedOrder ? cloneBarnMarketOrderState(savedOrder) : defaultOrder
+    }),
   }
 }
 
 function formatBarnLineItems(items: readonly BarnProcessingLineItem[]): string {
+  return items.map((item) => `${item.itemId}:${item.quantity}`).join(',')
+}
+
+function formatBarnMarketOrderLineItems(items: readonly BarnMarketOrderLineItem[]): string {
   return items.map((item) => `${item.itemId}:${item.quantity}`).join(',')
 }
 
@@ -956,9 +1066,15 @@ export function createGameServices(
     const rawJobs = Array.isArray((rawState as Partial<SaveBarnStateV1>).jobs)
       ? ((rawState as Partial<SaveBarnStateV1>).jobs as unknown[])
       : []
+    const rawMarketOrders = Array.isArray((rawState as Partial<SaveBarnStateV1>).marketOrders)
+      ? ((rawState as Partial<SaveBarnStateV1>).marketOrders as unknown[])
+      : createDefaultBarnSaveState().marketOrders
 
     return normalizeBarnSaveState({
       jobs: rawJobs.filter(isSaveBarnJobState).map((job) => cloneBarnJobState(job)),
+      marketOrders: rawMarketOrders
+        .filter(isSaveBarnMarketOrderState)
+        .map((order) => cloneBarnMarketOrderState(order)),
     })
   }
 
@@ -986,12 +1102,46 @@ export function createGameServices(
     }
   }
 
+  const canFulfillBarnMarketOrder = (
+    requiredItems: readonly BarnMarketOrderLineItem[],
+    inventory: Readonly<Record<string, number>>,
+  ): boolean => {
+    return requiredItems.every((item) => (inventory[item.itemId] ?? 0) >= item.quantity)
+  }
+
+  const buildBarnMarketOrderSnapshot = (
+    order: SaveBarnMarketOrderStateV1,
+    inventory: Readonly<Record<string, number>>,
+  ): BarnMarketOrderSnapshot => {
+    const config = getBarnMarketOrderConfig(order.orderId)
+    const requiredItems = config.requiredItems.map((item) => cloneBarnMarketOrderLineItem(item))
+    const isFulfilled = order.fulfilledAtEpochMs !== null
+
+    return {
+      orderId: order.orderId,
+      label: config.label,
+      description: config.description,
+      requiredItems,
+      payout: config.payout,
+      baseSellValue: config.baseSellValue,
+      premiumValue: config.premiumValue,
+      fulfilledAtEpochMs: order.fulfilledAtEpochMs,
+      source: order.source,
+      isFulfilled,
+      isClaimable: !isFulfilled && canFulfillBarnMarketOrder(requiredItems, inventory),
+    }
+  }
+
   const buildBarnStateSnapshot = (
     state: SaveBarnStateV1 = readBarnSaveState(),
     nowEpochMs: number = Date.now(),
   ): BarnStateSnapshot => {
+    const inventory = readInventoryState()
     return {
       jobs: state.jobs.map((job) => buildBarnJobSnapshot(job, nowEpochMs)),
+      marketOrders: state.marketOrders.map((order) =>
+        buildBarnMarketOrderSnapshot(order, inventory),
+      ),
     }
   }
 
@@ -1419,6 +1569,7 @@ export function createGameServices(
 
         return nextJob
       }),
+      marketOrders: currentBarnState.marketOrders,
     })
 
     setBarnSaveState(nextBarnState, { persist: false, nowEpochMs })
@@ -1678,6 +1829,7 @@ export function createGameServices(
     const state = setBarnSaveState(
       {
         jobs: [...currentBarnState.jobs, job],
+        marketOrders: currentBarnState.marketOrders,
       },
       { persist: false, nowEpochMs: now },
     )
@@ -1803,6 +1955,7 @@ export function createGameServices(
     const state = setBarnSaveState(
       {
         jobs: currentBarnState.jobs.filter((entry) => entry.id !== normalizedJobId),
+        marketOrders: currentBarnState.marketOrders,
       },
       { persist: false },
     )
@@ -1854,6 +2007,131 @@ export function createGameServices(
       recipeId: job.recipeId,
       outputs: recipe.outputs.map((item) => cloneBarnLineItem(item)),
       balance,
+      state,
+    }
+  }
+
+  const fulfillBarnMarketOrders = (
+    source: string = 'unspecified',
+  ): BarnMarketOrderFulfillmentResult => {
+    const normalizedSource = normalizeBarnMarketOrderSource(source)
+    const now = Date.now()
+    const currentBarnState = readBarnSaveState()
+    const nextInventory = readInventoryState()
+    const nextMarketOrders = currentBarnState.marketOrders.map((order) =>
+      cloneBarnMarketOrderState(order),
+    )
+    const inventoryChanges: InventoryChange[] = []
+    const fulfilledOrders: BarnMarketOrderFulfillment[] = []
+
+    for (const order of nextMarketOrders) {
+      if (order.fulfilledAtEpochMs !== null) {
+        continue
+      }
+
+      const config = getBarnMarketOrderConfig(order.orderId)
+      if (!canFulfillBarnMarketOrder(config.requiredItems, nextInventory)) {
+        continue
+      }
+
+      for (const item of config.requiredItems) {
+        const nextTotal = (nextInventory[item.itemId] ?? 0) - item.quantity
+        if (nextTotal > 0) {
+          nextInventory[item.itemId] = nextTotal
+        } else {
+          delete nextInventory[item.itemId]
+        }
+
+        inventoryChanges.push({
+          itemId: item.itemId,
+          quantity: -item.quantity,
+          total: nextTotal,
+          timestampMs: now,
+        })
+      }
+
+      order.fulfilledAtEpochMs = now
+      order.source = normalizedSource
+      fulfilledOrders.push({
+        orderId: order.orderId,
+        label: config.label,
+        requiredItems: config.requiredItems.map((item) => cloneBarnMarketOrderLineItem(item)),
+        payout: config.payout,
+        baseSellValue: config.baseSellValue,
+        premiumValue: config.premiumValue,
+        fulfilledAtEpochMs: now,
+      })
+    }
+
+    if (fulfilledOrders.length === 0) {
+      return {
+        result: 'none',
+        fulfilledOrders,
+        fulfilledOrderCount: 0,
+        consumedQuantity: 0,
+        totalPayout: 0,
+        balance: getCurrencyBalance(),
+        inventory: getInventorySnapshot(),
+        state: buildBarnStateSnapshot(currentBarnState, now),
+      }
+    }
+
+    if (inventoryChanges.length > 0) {
+      commitInventoryState(nextInventory, inventoryChanges, { persist: false })
+    }
+
+    const totalPayout = fulfilledOrders.reduce((total, order) => total + order.payout, 0)
+    const consumedQuantity = fulfilledOrders.reduce(
+      (total, order) =>
+        total + order.requiredItems.reduce((itemTotal, item) => itemTotal + item.quantity, 0),
+      0,
+    )
+    const currentBalance = readCurrencyBalance()
+    const nextBalance = currentBalance + totalPayout
+    const balance = commitCurrencyBalance(
+      nextBalance,
+      {
+        amount: totalPayout,
+        balance: nextBalance,
+        reason: `barn_market_order:${normalizedSource}`,
+        timestampMs: now,
+      },
+      { persist: false },
+    )
+    const state = setBarnSaveState(
+      {
+        jobs: currentBarnState.jobs,
+        marketOrders: nextMarketOrders,
+      },
+      { persist: false, nowEpochMs: now },
+    )
+
+    persistCurrentState()
+
+    for (const order of fulfilledOrders) {
+      telemetry.track('barn_market_order_fulfilled', {
+        orderId: order.orderId,
+        orderLabel: order.label,
+        requiredLineItems: formatBarnMarketOrderLineItems(order.requiredItems),
+        payout: order.payout,
+        baseSellValue: order.baseSellValue,
+        premiumValue: order.premiumValue,
+        fulfilledOrderCount: fulfilledOrders.length,
+        balance,
+        source: normalizedSource,
+        fulfilledAtEpochMs: now,
+        eventTimestampMs: now,
+      })
+    }
+
+    return {
+      result: 'fulfilled',
+      fulfilledOrders,
+      fulfilledOrderCount: fulfilledOrders.length,
+      consumedQuantity,
+      totalPayout,
+      balance,
+      inventory: getInventorySnapshot(),
       state,
     }
   }
@@ -2673,6 +2951,7 @@ export function createGameServices(
     getBarnRecipeUnlockState,
     startBarnJob,
     claimBarnJob,
+    fulfillBarnMarketOrders,
     onBarnStateChanged,
     getExpansionStateSnapshot,
     purchaseNextExpansionTier,

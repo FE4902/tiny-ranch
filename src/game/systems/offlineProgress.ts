@@ -277,6 +277,7 @@ export function applyOfflineProgressCatchUp(
     inventory: nextInventory,
     barn: {
       jobs: nextBarnJobs,
+      marketOrders: inputSaveState.barn.marketOrders,
     },
     ranch: {
       crops: nextCrops,

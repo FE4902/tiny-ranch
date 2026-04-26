@@ -3,6 +3,11 @@ import {
   barnProcessingRecipeConfigs,
   type BarnProcessingRecipeId,
 } from '../../config/barn'
+import {
+  barnMarketOrderConfigs,
+  barnMarketOrderIds,
+  type BarnMarketOrderId,
+} from '../../config/barnMarketOrders'
 import { cropSeedConfigs, type CropSeedId } from '../../config/crops'
 import { getFirstFtueStepId, isFtueStepId, type FtueStepId } from '../../config/ftue'
 import { isReturnObjectiveId, type ReturnObjectiveId } from '../../config/returnObjectives'
@@ -23,6 +28,7 @@ import { PLAYABLE_SCENES, type PlayableSceneKey } from '../../constants'
 
 export const SAVE_SCHEMA_VERSION = 1 as const
 export const DEFAULT_BARN_JOB_SOURCE = 'unspecified' as const
+export const DEFAULT_BARN_MARKET_ORDER_SOURCE = 'unfulfilled' as const
 
 export interface SaveMetadataV1 {
   savedAtEpochMs: number
@@ -85,8 +91,15 @@ export interface SaveBarnJobStateV1 {
   source: string
 }
 
+export interface SaveBarnMarketOrderStateV1 {
+  orderId: BarnMarketOrderId
+  fulfilledAtEpochMs: number | null
+  source: string
+}
+
 export interface SaveBarnStateV1 {
   jobs: SaveBarnJobStateV1[]
+  marketOrders: SaveBarnMarketOrderStateV1[]
 }
 
 export interface SaveStateV1 {
@@ -156,6 +169,10 @@ function isPlayableSceneKey(value: unknown): value is PlayableSceneKey {
 
 function isBarnProcessingRecipeId(value: unknown): value is BarnProcessingRecipeId {
   return typeof value === 'string' && Object.hasOwn(barnProcessingRecipeConfigs, value)
+}
+
+function isBarnMarketOrderId(value: unknown): value is BarnMarketOrderId {
+  return typeof value === 'string' && Object.hasOwn(barnMarketOrderConfigs, value)
 }
 
 function decodeInventory(value: unknown): Record<string, number> | null {
@@ -352,6 +369,11 @@ export function createDefaultReturnObjectiveStreakSaveState(): SaveReturnObjecti
 export function createDefaultBarnSaveState(): SaveBarnStateV1 {
   return {
     jobs: [],
+    marketOrders: barnMarketOrderIds.map((orderId) => ({
+      orderId,
+      fulfilledAtEpochMs: null,
+      source: DEFAULT_BARN_MARKET_ORDER_SOURCE,
+    })),
   }
 }
 
@@ -506,6 +528,56 @@ function decodeBarnJobState(value: unknown): SaveBarnJobStateV1 | null {
   }
 }
 
+function decodeBarnMarketOrderState(value: unknown): SaveBarnMarketOrderStateV1 | null {
+  if (!isObject(value)) {
+    return null
+  }
+
+  if (!isBarnMarketOrderId(value.orderId)) {
+    return null
+  }
+
+  const fulfilledAtEpochMs =
+    value.fulfilledAtEpochMs === undefined ? null : value.fulfilledAtEpochMs
+  if (!isNullableNonNegativeInteger(fulfilledAtEpochMs)) {
+    return null
+  }
+
+  const source =
+    typeof value.source === 'string' && value.source.trim().length > 0
+      ? value.source.trim()
+      : DEFAULT_BARN_MARKET_ORDER_SOURCE
+
+  return {
+    orderId: value.orderId,
+    fulfilledAtEpochMs,
+    source,
+  }
+}
+
+function mergeBarnMarketOrderDefaults(
+  marketOrders: readonly SaveBarnMarketOrderStateV1[],
+): SaveBarnMarketOrderStateV1[] {
+  const ordersById = new Map<BarnMarketOrderId, SaveBarnMarketOrderStateV1>()
+
+  for (const order of marketOrders) {
+    ordersById.set(order.orderId, order)
+  }
+
+  return createDefaultBarnSaveState().marketOrders.map((defaultOrder) => {
+    const savedOrder = ordersById.get(defaultOrder.orderId)
+    if (!savedOrder) {
+      return defaultOrder
+    }
+
+    return {
+      orderId: savedOrder.orderId,
+      fulfilledAtEpochMs: savedOrder.fulfilledAtEpochMs,
+      source: savedOrder.source,
+    }
+  })
+}
+
 function decodeBarnState(value: unknown): SaveBarnStateV1 | null {
   if (value === undefined) {
     return createDefaultBarnSaveState()
@@ -528,8 +600,28 @@ function decodeBarnState(value: unknown): SaveBarnStateV1 | null {
     jobs.push(decoded)
   }
 
+  const marketOrders: SaveBarnMarketOrderStateV1[] = []
+  const seenOrderIds = new Set<BarnMarketOrderId>()
+
+  if (value.marketOrders !== undefined) {
+    if (!Array.isArray(value.marketOrders)) {
+      return null
+    }
+
+    for (const order of value.marketOrders) {
+      const decoded = decodeBarnMarketOrderState(order)
+      if (!decoded || seenOrderIds.has(decoded.orderId)) {
+        return null
+      }
+
+      seenOrderIds.add(decoded.orderId)
+      marketOrders.push(decoded)
+    }
+  }
+
   return {
     jobs,
+    marketOrders: mergeBarnMarketOrderDefaults(marketOrders),
   }
 }
 
