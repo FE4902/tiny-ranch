@@ -1,5 +1,10 @@
 import Phaser from 'phaser'
 
+import {
+  defaultCropSeedId,
+  getCropSeedConfig,
+  type CropSeedId,
+} from '../config/crops'
 import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import {
   FIRST_SESSION_FUNNEL_DEBUG_EVENT,
@@ -8,6 +13,8 @@ import {
 } from '../systems/firstSessionFunnel'
 import {
   getGameServices,
+  ranchHudActions,
+  type RanchHudAction,
   type ReturnSessionSummaryDismissSource,
 } from '../systems/runtime'
 import type { ReturnSessionSummary } from '../systems/offlineProgress'
@@ -20,6 +27,44 @@ const RETURN_SUMMARY_MODAL_MAX_WIDTH = 360
 const RETURN_SUMMARY_MODAL_MIN_WIDTH = 260
 const RETURN_SUMMARY_BACKDROP_DEPTH = 180
 const RETURN_SUMMARY_MODAL_DEPTH = 181
+const HUD_COMPACT_WIDTH = 900
+const HUD_DESKTOP_HEIGHT = 108
+const HUD_COMPACT_HEIGHT = 132
+const HUD_DEPTH = 140
+const HUD_SIDE_PADDING = 12
+const HUD_BUTTON_GAP = 6
+
+const actionLabels: Record<RanchHudAction, string> = {
+  plant: 'Plant',
+  harvest: 'Harvest',
+  sell: 'Sell',
+}
+
+export interface HudButtonDebugSnapshot {
+  label: string
+  selected: boolean
+  bounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+}
+
+export interface UiSceneDebugHudSnapshot {
+  isVisible: boolean
+  coinsText: string
+  inventoryText: string
+  seedText: string
+  selectedActionText: string
+  toolbarBounds: {
+    x: number
+    y: number
+    width: number
+    height: number
+  }
+  actionButtons: Record<RanchHudAction, HudButtonDebugSnapshot>
+}
 
 interface ReturnSessionSummaryModal {
   summary: ReturnSessionSummary
@@ -75,11 +120,185 @@ function formatFunnelDebugLine(event: FirstSessionFunnelDebugEvent): string {
 export class UiScene extends Phaser.Scene {
   private activeSceneLabel?: Phaser.GameObjects.Text
   private buttons = new Map<PlayableSceneKey, TextButton>()
+  private hudToolbar?: Phaser.GameObjects.Rectangle
+  private hudCoinsText?: Phaser.GameObjects.Text
+  private hudInventoryText?: Phaser.GameObjects.Text
+  private hudSeedText?: Phaser.GameObjects.Text
+  private hudSelectedActionText?: Phaser.GameObjects.Text
+  private readonly actionButtons = new Map<RanchHudAction, TextButton>()
   private returnSessionSummaryModal?: ReturnSessionSummaryModal
   private returnSessionSummaryEscapeHandler?: (event: KeyboardEvent) => void
 
   constructor() {
     super(SCENE_KEYS.ui)
+  }
+
+  private isCompactHudLayout(): boolean {
+    return this.scale.width < HUD_COMPACT_WIDTH
+  }
+
+  private formatActionLabel(action: RanchHudAction): string {
+    return actionLabels[action]
+  }
+
+  private formatHudItemLabel(itemId: string): string {
+    return itemId
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase())
+  }
+
+  private getActiveSeedId(): CropSeedId {
+    const services = getGameServices(this)
+    const snapshot = services.getRanchStateSnapshot()
+    return snapshot.activeSeedId ?? defaultCropSeedId
+  }
+
+  private refreshHud(): void {
+    if (
+      !this.hudCoinsText ||
+      !this.hudInventoryText ||
+      !this.hudSeedText ||
+      !this.hudSelectedActionText
+    ) {
+      return
+    }
+
+    const services = getGameServices(this)
+    const activeSeedId = this.getActiveSeedId()
+    const seedConfig = getCropSeedConfig(activeSeedId)
+    const inventory = services.getInventorySnapshot()
+    const balance = services.getCurrencyBalance()
+    const selectedAction = services.getSelectedRanchAction()
+    const cropCount = inventory[seedConfig.yieldItemId] ?? 0
+
+    this.hudCoinsText.setText(`Coins: ${balance}`)
+    this.hudInventoryText.setText(
+      `${this.formatHudItemLabel(seedConfig.yieldItemId)}: ${cropCount}`,
+    )
+    this.hudSeedText.setText(`Seed: ${seedConfig.label}`)
+    this.hudSelectedActionText.setText(`Action: ${this.formatActionLabel(selectedAction)}`)
+
+    for (const [action, button] of this.actionButtons) {
+      button.setSelected(action === selectedAction)
+    }
+  }
+
+  private layoutHud(): void {
+    const compactLayout = this.isCompactHudLayout()
+    const width = this.scale.width
+    const toolbarHeight = compactLayout ? HUD_COMPACT_HEIGHT : HUD_DESKTOP_HEIGHT
+
+    this.hudToolbar?.setSize(width, toolbarHeight)
+
+    const ranchButton = this.buttons.get(SCENE_KEYS.ranch)
+    const barnButton = this.buttons.get(SCENE_KEYS.barn)
+    const navButtonWidth = compactLayout ? Math.min(86, Math.max(74, (width - 40) / 4)) : 112
+    const navButtonHeight = compactLayout ? 36 : 40
+    ranchButton?.setButtonSize(navButtonWidth, navButtonHeight)
+    barnButton?.setButtonSize(navButtonWidth, navButtonHeight)
+
+    if (compactLayout) {
+      const navY = 24
+      ranchButton?.setPosition(HUD_SIDE_PADDING + navButtonWidth / 2, navY)
+      barnButton?.setPosition(HUD_SIDE_PADDING + navButtonWidth * 1.5 + 8, navY)
+
+      this.activeSceneLabel?.setVisible(false)
+      this.hudCoinsText
+        ?.setFontSize('12px')
+        .setOrigin(1, 0)
+        .setPosition(width - HUD_SIDE_PADDING, 10)
+      this.hudInventoryText
+        ?.setFontSize('12px')
+        .setOrigin(1, 0)
+        .setPosition(width - HUD_SIDE_PADDING, 32)
+      this.hudSeedText?.setFontSize('12px').setOrigin(0, 0).setPosition(HUD_SIDE_PADDING, 56)
+      this.hudSelectedActionText
+        ?.setFontSize('12px')
+        .setOrigin(1, 0)
+        .setPosition(width - HUD_SIDE_PADDING, 56)
+
+      const actionButtonWidth = Math.floor(
+        (width - HUD_SIDE_PADDING * 2 - HUD_BUTTON_GAP * (ranchHudActions.length - 1)) /
+          ranchHudActions.length,
+      )
+      const safeActionButtonWidth = Math.max(72, actionButtonWidth)
+      ranchHudActions.forEach((action, index) => {
+        const button = this.actionButtons.get(action)
+        if (!button) {
+          return
+        }
+
+        button.setButtonSize(safeActionButtonWidth, 38)
+        button.setPosition(
+          HUD_SIDE_PADDING +
+            safeActionButtonWidth / 2 +
+            index * (safeActionButtonWidth + HUD_BUTTON_GAP),
+          106,
+        )
+      })
+      return
+    }
+
+    ranchButton?.setPosition(86, 32)
+    barnButton?.setPosition(206, 32)
+    this.activeSceneLabel?.setVisible(true).setOrigin(0, 0.5).setPosition(290, 32)
+    this.hudCoinsText?.setFontSize('13px').setOrigin(1, 0).setPosition(width - 18, 12)
+    this.hudInventoryText?.setFontSize('13px').setOrigin(1, 0).setPosition(width - 18, 36)
+    this.hudSeedText?.setFontSize('12px').setOrigin(1, 0).setPosition(width - 18, 62)
+    this.hudSelectedActionText?.setFontSize('13px').setOrigin(0, 0.5).setPosition(318, 72)
+
+    ranchHudActions.forEach((action, index) => {
+      const button = this.actionButtons.get(action)
+      if (!button) {
+        return
+      }
+
+      button.setButtonSize(84, 36)
+      button.setPosition(438 + index * 92, 72)
+    })
+  }
+
+  private getHudButtonDebugSnapshot(
+    action: RanchHudAction,
+    selectedAction: RanchHudAction,
+  ): HudButtonDebugSnapshot {
+    const button = this.actionButtons.get(action)
+    const bounds = button?.getBounds()
+
+    return {
+      label: this.formatActionLabel(action),
+      selected: selectedAction === action,
+      bounds: {
+        x: bounds?.x ?? 0,
+        y: bounds?.y ?? 0,
+        width: bounds?.width ?? 0,
+        height: bounds?.height ?? 0,
+      },
+    }
+  }
+
+  getDebugHudSnapshot(): UiSceneDebugHudSnapshot {
+    const selectedAction = getGameServices(this).getSelectedRanchAction()
+    const toolbarHeight = this.isCompactHudLayout() ? HUD_COMPACT_HEIGHT : HUD_DESKTOP_HEIGHT
+
+    return {
+      isVisible: Boolean(this.hudToolbar?.visible),
+      coinsText: this.hudCoinsText?.text ?? '',
+      inventoryText: this.hudInventoryText?.text ?? '',
+      seedText: this.hudSeedText?.text ?? '',
+      selectedActionText: this.hudSelectedActionText?.text ?? '',
+      toolbarBounds: {
+        x: 0,
+        y: 0,
+        width: this.scale.width,
+        height: toolbarHeight,
+      },
+      actionButtons: {
+        plant: this.getHudButtonDebugSnapshot('plant', selectedAction),
+        harvest: this.getHudButtonDebugSnapshot('harvest', selectedAction),
+        sell: this.getHudButtonDebugSnapshot('sell', selectedAction),
+      },
+    }
   }
 
   private formatRewardItemLabel(itemId: string): string {
@@ -337,8 +556,11 @@ export class UiScene extends Phaser.Scene {
     const debugFunnelOverlayEnabled = isDebugFunnelOverlayEnabled()
     const funnelDebugLines: string[] = []
 
-    const toolbar = this.add.rectangle(0, 0, 0, 66, 0x071511, 0.56).setOrigin(0)
-    toolbar.setStrokeStyle(1, 0xffffff, 0.08)
+    this.hudToolbar = this.add
+      .rectangle(0, 0, 0, HUD_DESKTOP_HEIGHT, 0x071511, 0.72)
+      .setOrigin(0)
+      .setDepth(HUD_DEPTH)
+    this.hudToolbar.setStrokeStyle(1, 0xffffff, 0.08)
 
     const ranchButton = new TextButton(this, 86, 32, '1 Ranch', () => {
       services.navigate(SCENE_KEYS.ranch)
@@ -350,13 +572,52 @@ export class UiScene extends Phaser.Scene {
     this.buttons.set(SCENE_KEYS.ranch, ranchButton)
     this.buttons.set(SCENE_KEYS.barn, barnButton)
 
+    this.hudCoinsText = this.add
+      .text(0, 0, '', {
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+        fontSize: '13px',
+        color: '#f6d66d',
+      })
+      .setDepth(HUD_DEPTH + 1)
+    this.hudInventoryText = this.add
+      .text(0, 0, '', {
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+        fontSize: '13px',
+        color: '#e9f6db',
+      })
+      .setDepth(HUD_DEPTH + 1)
+    this.hudSeedText = this.add
+      .text(0, 0, '', {
+        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+        fontSize: '12px',
+        color: '#d7f4e4',
+      })
+      .setDepth(HUD_DEPTH + 1)
+    this.hudSelectedActionText = this.add
+      .text(0, 0, '', {
+        fontFamily: '"Avenir Next", "Trebuchet MS", sans-serif',
+        fontSize: '13px',
+        color: '#f4efe3',
+      })
+      .setDepth(HUD_DEPTH + 1)
+
+    ranchHudActions.forEach((action) => {
+      const button = new TextButton(this, 0, 0, this.formatActionLabel(action), () => {
+        services.setSelectedRanchAction(action, 'hud:pointer')
+        this.refreshHud()
+      })
+      button.setDepth(HUD_DEPTH + 1)
+      this.actionButtons.set(action, button)
+      this.add.existing(button)
+    })
+
     this.activeSceneLabel = this.add
       .text(0, 0, 'Now viewing: ranch', {
         fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
         fontSize: '13px',
         color: '#f4efe3',
       })
-      .setOrigin(1, 0.5)
+      .setDepth(HUD_DEPTH + 1)
 
     const triggerDebugSaveReset = (): void => {
       services.resetSavedGameState()
@@ -391,6 +652,8 @@ export class UiScene extends Phaser.Scene {
           .setDepth(160)
       : undefined
 
+    ranchButton.setDepth(HUD_DEPTH + 1)
+    barnButton.setDepth(HUD_DEPTH + 1)
     this.add.existing(ranchButton)
     this.add.existing(barnButton)
 
@@ -440,11 +703,11 @@ export class UiScene extends Phaser.Scene {
     }
 
     const layout = (): void => {
-      const { width } = this.scale
-      toolbar.setSize(width, 66)
-      this.activeSceneLabel?.setPosition(width - 18, 32)
-      debugResetHint?.setPosition(16, 54)
-      funnelDebugOverlay?.setPosition(16, 72)
+      const compactLayout = this.isCompactHudLayout()
+      const toolbarHeight = compactLayout ? HUD_COMPACT_HEIGHT : HUD_DESKTOP_HEIGHT
+      this.layoutHud()
+      debugResetHint?.setVisible(!compactLayout).setPosition(16, toolbarHeight - 14)
+      funnelDebugOverlay?.setPosition(16, toolbarHeight + 6)
       this.layoutReturnSessionSummaryModal()
     }
 
@@ -472,15 +735,25 @@ export class UiScene extends Phaser.Scene {
     layout()
     setSelectedScene(services.getActiveScene() ?? SCENE_KEYS.ranch)
     refreshBarnButtonIntent()
+    this.refreshHud()
     this.showReturnSessionSummaryModal()
 
     this.scale.on(Phaser.Scale.Events.RESIZE, layout)
     this.game.events.on('tiny-ranch:scene-changed', setSelectedScene)
     const unsubscribeBarnChanges = services.onBarnStateChanged(refreshBarnButtonIntent)
-    const unsubscribeInventoryChanges = services.onInventoryChanged(refreshBarnButtonIntent)
-    const unsubscribeCurrencyChanges = services.onCurrencyChanged(refreshBarnButtonIntent)
+    const unsubscribeInventoryChanges = services.onInventoryChanged(() => {
+      refreshBarnButtonIntent()
+      this.refreshHud()
+    })
+    const unsubscribeCurrencyChanges = services.onCurrencyChanged(() => {
+      refreshBarnButtonIntent()
+      this.refreshHud()
+    })
     const unsubscribeExpansionChanges = services.onExpansionStateChanged(refreshBarnButtonIntent)
     const unsubscribeFtueChanges = services.onFtueStateChanged(refreshBarnButtonIntent)
+    const unsubscribeSelectedActionChanges = services.onSelectedRanchActionChanged(() => {
+      this.refreshHud()
+    })
 
     const handleRanchHotkey = (): void => services.navigate(SCENE_KEYS.ranch)
     const handleBarnHotkey = (): void => services.navigate(SCENE_KEYS.barn)
@@ -507,6 +780,7 @@ export class UiScene extends Phaser.Scene {
       unsubscribeCurrencyChanges()
       unsubscribeExpansionChanges()
       unsubscribeFtueChanges()
+      unsubscribeSelectedActionChanges()
       this.input.keyboard?.off('keydown-ONE', handleRanchHotkey)
       this.input.keyboard?.off('keydown-TWO', handleBarnHotkey)
       if (debugSaveResetEnabled) {

@@ -62,17 +62,24 @@ type CanvasRenderingSnapshot = {
   imageRendering: string
 }
 
+type ScreenPoint = {
+  x: number
+  y: number
+}
+
+type ScreenBounds = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 type RanchMapSnapshot = {
   widthTiles: number
   heightTiles: number
   tileSize: number
   mapScale: number
-  mapBounds: {
-    x: number
-    y: number
-    width: number
-    height: number
-  }
+  mapBounds: ScreenBounds
   cropPlotCount: number
   visibleCropPlotCount: number
   cropPlotCssSize: number
@@ -80,12 +87,30 @@ type RanchMapSnapshot = {
     id: string
     x: number
     y: number
-    center: {
-      x: number
-      y: number
-    }
+    center: ScreenPoint
   }>
   decorationSpriteCount: number
+}
+
+type HudButtonSnapshot = {
+  label: string
+  selected: boolean
+  center: ScreenPoint
+  bounds: ScreenBounds
+}
+
+type HudSnapshot = {
+  isVisible: boolean
+  coinsText: string
+  inventoryText: string
+  seedText: string
+  selectedActionText: string
+  toolbarBounds: ScreenBounds
+  actionButtons: {
+    plant: HudButtonSnapshot
+    harvest: HudButtonSnapshot
+    sell: HudButtonSnapshot
+  }
 }
 
 function resolveLaunchMetadata(): LaunchMetadata {
@@ -223,7 +248,61 @@ async function getRanchMapSnapshot(page: Page): Promise<RanchMapSnapshot> {
   }, SMOKE_HARNESS_KEY)
 }
 
-test('production launch shell exposes metadata and boots the game', async ({ page }) => {
+async function getHudSnapshot(page: Page): Promise<HudSnapshot> {
+  return page.evaluate((harnessKey: string) => {
+    const key = harnessKey as keyof Window
+    const harness = window[key] as
+      | {
+          getHudSnapshot: () => HudSnapshot
+        }
+      | undefined
+    if (!harness) {
+      throw new Error('Smoke harness is not available on window.')
+    }
+
+    return harness.getHudSnapshot()
+  }, SMOKE_HARNESS_KEY)
+}
+
+async function debugSeedInventory(page: Page, itemId: string, quantity: number): Promise<void> {
+  await page.evaluate(
+    ({ harnessKey, itemId: inventoryItemId, quantity: inventoryQuantity }) => {
+      const key = harnessKey as keyof Window
+      const harness = window[key] as
+        | {
+            debugSeedInventory: (itemId: string, quantity: number) => void
+          }
+        | undefined
+      if (!harness) {
+        throw new Error('Smoke harness is not available on window.')
+      }
+
+      harness.debugSeedInventory(inventoryItemId, inventoryQuantity)
+    },
+    { harnessKey: SMOKE_HARNESS_KEY, itemId, quantity },
+  )
+}
+
+async function debugGrantCoins(page: Page, amount: number): Promise<number> {
+  return page.evaluate(
+    ({ harnessKey, amount: grantAmount }) => {
+      const key = harnessKey as keyof Window
+      const harness = window[key] as
+        | {
+            debugGrantCoins: (amount: number) => number
+          }
+        | undefined
+      if (!harness) {
+        throw new Error('Smoke harness is not available on window.')
+      }
+
+      return harness.debugGrantCoins(grantAmount)
+    },
+    { harnessKey: SMOKE_HARNESS_KEY, amount },
+  )
+}
+
+test('production launch shell exposes metadata and boots the game', async ({ page }, testInfo) => {
   const consoleErrors: string[] = []
   const pageErrors: string[] = []
 
@@ -327,6 +406,37 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
       expect.objectContaining({ id: 'crop-plot-7-10', x: 7, y: 10 }),
     ]),
   )
+
+  const hud = await getHudSnapshot(page)
+  expect(hud.isVisible).toBe(true)
+  expect(hud.coinsText).toBe('Coins: 0')
+  expect(hud.inventoryText).toBe('Turnip: 0')
+  expect(hud.seedText).toBe('Seed: Turnip Seed')
+  expect(hud.selectedActionText).toBe('Action: Plant')
+  expect(hud.actionButtons.plant.selected).toBe(true)
+  expect(hud.actionButtons.harvest.selected).toBe(false)
+  expect(hud.actionButtons.sell.selected).toBe(false)
+
+  Object.values(hud.actionButtons).forEach((button) => {
+    expect(button.bounds.width).toBeGreaterThanOrEqual(72)
+    expect(button.bounds.height).toBeGreaterThanOrEqual(36)
+  })
+
+  const harvestButton = hud.actionButtons.harvest
+  if (testInfo.project.name === 'mobile-chromium') {
+    await page.touchscreen.tap(harvestButton.center.x, harvestButton.center.y)
+  } else {
+    await page.mouse.click(harvestButton.center.x, harvestButton.center.y)
+  }
+
+  await debugGrantCoins(page, 7)
+  await debugSeedInventory(page, 'turnip', 3)
+
+  const updatedHud = await getHudSnapshot(page)
+  expect(updatedHud.coinsText).toBe('Coins: 7')
+  expect(updatedHud.inventoryText).toBe('Turnip: 3')
+  expect(updatedHud.selectedActionText).toBe('Action: Harvest')
+  expect(updatedHud.actionButtons.harvest.selected).toBe(true)
 
   const preloadAssets = await getPreloadAssetSnapshot(page)
   expect(preloadAssets.allLoaded).toBe(true)

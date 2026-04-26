@@ -105,6 +105,8 @@ const CURRENCY_CHANGED_EVENT = 'tiny-ranch:currency-changed'
 const RANCH_ACTIVE_SEED_REGISTRY_KEY = 'tiny-ranch:ranch-active-seed'
 const RANCH_CROPS_REGISTRY_KEY = 'tiny-ranch:ranch-crops'
 const RANCH_ANIMALS_REGISTRY_KEY = 'tiny-ranch:ranch-animals'
+const RANCH_SELECTED_ACTION_REGISTRY_KEY = 'tiny-ranch:ranch-selected-action'
+const RANCH_SELECTED_ACTION_CHANGED_EVENT = 'tiny-ranch:ranch-selected-action-changed'
 const FTUE_STATE_REGISTRY_KEY = 'tiny-ranch:ftue-state'
 const FTUE_CHANGED_EVENT = 'tiny-ranch:ftue-changed'
 const RETURN_OBJECTIVE_STATE_REGISTRY_KEY = 'tiny-ranch:return-objective-state'
@@ -124,6 +126,16 @@ export interface RanchStateSnapshot {
   activeSeedId: CropSeedId
   crops: SaveCropStateV1[]
   animals: SaveAnimalStateV1[]
+}
+
+export const ranchHudActions = ['plant', 'harvest', 'sell'] as const
+export type RanchHudAction = typeof ranchHudActions[number]
+
+export interface RanchSelectedActionChange {
+  action: RanchHudAction
+  previousAction: RanchHudAction
+  source: string
+  timestampMs: number
 }
 
 export interface InventoryChange {
@@ -334,6 +346,7 @@ export type FtueStateChangeListener = (state: FtueStateSnapshot) => void
 export type ReturnObjectiveStateChangeListener = (state: ReturnObjectiveStateSnapshot) => void
 export type ExpansionStateChangeListener = (state: ExpansionStateSnapshot) => void
 export type UpgradeStateChangeListener = (state: UpgradeStateSnapshot) => void
+export type RanchSelectedActionChangeListener = (change: RanchSelectedActionChange) => void
 
 export interface InventorySaleResult {
   itemId: string
@@ -427,6 +440,9 @@ export interface GameServices {
   onReturnObjectiveStateChanged: (listener: ReturnObjectiveStateChangeListener) => () => void
   getRanchStateSnapshot: () => RanchStateSnapshot
   setRanchStateSnapshot: (snapshot: RanchStateSnapshot) => void
+  getSelectedRanchAction: () => RanchHudAction
+  setSelectedRanchAction: (action: RanchHudAction, source?: string) => RanchHudAction
+  onSelectedRanchActionChanged: (listener: RanchSelectedActionChangeListener) => () => void
   getPendingReturnSessionSummary: () => ReturnSessionSummary | null
   dismissReturnSessionSummary: (
     source?: ReturnSessionSummaryDismissSource,
@@ -446,6 +462,10 @@ function isNonNegativeInteger(value: unknown): value is number {
 
 function isCropSeedId(value: unknown): value is CropSeedId {
   return typeof value === 'string' && Object.hasOwn(cropSeedConfigs, value)
+}
+
+function isRanchHudAction(value: unknown): value is RanchHudAction {
+  return typeof value === 'string' && ranchHudActions.includes(value as RanchHudAction)
 }
 
 function isBarnProcessingRecipeId(value: unknown): value is BarnProcessingRecipeId {
@@ -1077,6 +1097,7 @@ export function createGameServices(
     game.registry.set(RANCH_ACTIVE_SEED_REGISTRY_KEY, defaultCropSeedId)
     game.registry.set(RANCH_CROPS_REGISTRY_KEY, [])
     game.registry.set(RANCH_ANIMALS_REGISTRY_KEY, [])
+    game.registry.set(RANCH_SELECTED_ACTION_REGISTRY_KEY, 'plant')
     game.registry.set(FTUE_STATE_REGISTRY_KEY, createDefaultFtueSaveState())
     game.registry.set(RETURN_OBJECTIVE_STATE_REGISTRY_KEY, createDefaultReturnObjectiveSaveState())
     game.registry.set(
@@ -1626,6 +1647,11 @@ export function createGameServices(
       crops,
       animals,
     }
+  }
+
+  const getSelectedRanchAction = (): RanchHudAction => {
+    const selectedAction = game.registry.get(RANCH_SELECTED_ACTION_REGISTRY_KEY)
+    return isRanchHudAction(selectedAction) ? selectedAction : 'plant'
   }
 
   const getActiveScene = (): PlayableSceneKey | null => {
@@ -2550,6 +2576,26 @@ export function createGameServices(
     persistCurrentState()
   }
 
+  const setSelectedRanchAction = (
+    action: RanchHudAction,
+    source: string = 'hud',
+  ): RanchHudAction => {
+    const nextAction = isRanchHudAction(action) ? action : 'plant'
+    const previousAction = getSelectedRanchAction()
+    game.registry.set(RANCH_SELECTED_ACTION_REGISTRY_KEY, nextAction)
+
+    if (nextAction !== previousAction) {
+      game.events.emit(RANCH_SELECTED_ACTION_CHANGED_EVENT, {
+        action: nextAction,
+        previousAction,
+        source,
+        timestampMs: Date.now(),
+      } satisfies RanchSelectedActionChange)
+    }
+
+    return nextAction
+  }
+
   const setFtueState = (
     state: SaveFtueStateV1,
     options: {
@@ -3115,6 +3161,19 @@ export function createGameServices(
     }
   }
 
+  const onSelectedRanchActionChanged = (
+    listener: RanchSelectedActionChangeListener,
+  ): (() => void) => {
+    const handler = (change: RanchSelectedActionChange): void => {
+      listener(change)
+    }
+
+    game.events.on(RANCH_SELECTED_ACTION_CHANGED_EVENT, handler)
+    return () => {
+      game.events.off(RANCH_SELECTED_ACTION_CHANGED_EVENT, handler)
+    }
+  }
+
   const setActiveScene = (sceneKey: PlayableSceneKey): void => {
     const currentScene = getActiveScene()
 
@@ -3195,6 +3254,9 @@ export function createGameServices(
     onReturnObjectiveStateChanged,
     getRanchStateSnapshot: readRanchStateSnapshot,
     setRanchStateSnapshot,
+    getSelectedRanchAction,
+    setSelectedRanchAction,
+    onSelectedRanchActionChanged,
     getPendingReturnSessionSummary,
     dismissReturnSessionSummary,
     saveGameState,

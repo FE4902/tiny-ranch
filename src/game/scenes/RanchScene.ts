@@ -37,7 +37,7 @@ import {
   type ReturnObjectiveStateSnapshot,
 } from '../systems/runtime'
 
-const HUD_SAFE_TOP = 72
+const HUD_SAFE_TOP = 140
 const SCENE_PADDING = 12
 const PLAYER_MOVE_SPEED = 74
 const PLAYER_COLLISION_RADIUS_FACTOR = 0.26
@@ -54,8 +54,6 @@ const UTILITY_WELL_LANDMARK_INTERACTABLE_ID = 'landmark:utility-well'
 const FEEDBACK_COLOR_DEFAULT = '#f6bf5f'
 const FEEDBACK_COLOR_SUCCESS = '#8dd6a0'
 const FEEDBACK_COLOR_ERROR = '#ff9f7a'
-const INVENTORY_LABEL_COLOR = '#e9f6db'
-const CURRENCY_LABEL_COLOR = '#f6d66d'
 const UPGRADE_LABEL_COLOR = '#f4efe3'
 const FTUE_LABEL_COLOR = '#f4efe3'
 const FTUE_LABEL_BG = '#10241ee0'
@@ -167,8 +165,6 @@ export class RanchScene extends Phaser.Scene {
   private touchMoveIndicator?: Phaser.GameObjects.Rectangle
   private interactionPrompt?: Phaser.GameObjects.Text
   private interactionFeedback?: Phaser.GameObjects.Text
-  private inventoryLabel?: Phaser.GameObjects.Text
-  private currencyLabel?: Phaser.GameObjects.Text
   private upgradePanelBg?: Phaser.GameObjects.Rectangle
   private upgradePanelTitle?: Phaser.GameObjects.Text
   private readonly upgradeEntryLabels = new Map<UpgradeId, Phaser.GameObjects.Text>()
@@ -213,10 +209,10 @@ export class RanchScene extends Phaser.Scene {
 
   private readonly resizeHandler = (): void => {
     this.inputPrefersTouch = this.isTouchInputPreferred()
+    this.configureUpgradeUiInteractivity()
     this.layoutMap(ranchMapContract)
     this.drawBackdrop()
     this.layoutInteractionUi()
-    this.layoutInventoryUi()
     this.layoutUpgradeUi()
     this.refreshUpgradeUi()
     this.layoutFtueObjectiveUi()
@@ -267,8 +263,6 @@ export class RanchScene extends Phaser.Scene {
     this.createTouchMoveIndicator()
     this.createPlayer(ranchMapContract)
     this.createInteractionUi()
-    this.createInventoryUi()
-    this.createCurrencyUi()
     this.createUpgradeUi()
     this.createFtueObjectiveUi()
     this.createReturnObjectiveUi()
@@ -278,14 +272,11 @@ export class RanchScene extends Phaser.Scene {
     this.layoutMap(ranchMapContract)
     this.drawBackdrop()
     this.layoutInteractionUi()
-    this.layoutInventoryUi()
     this.layoutUpgradeUi()
     this.layoutFtueObjectiveUi()
     this.layoutReturnObjectiveUi()
     const restoredSnapshot = this.hydrateRanchStateSnapshot(ranchMapContract)
     this.syncFtueProgressFromWorldState()
-    this.refreshInventoryUi()
-    this.refreshCurrencyUi()
     this.refreshUpgradeUi()
     this.trackUpgradePanelViewed()
     this.refreshFtueObjectiveUi()
@@ -299,12 +290,10 @@ export class RanchScene extends Phaser.Scene {
       activeSeedId: this.activeSeedId,
     })
     this.unsubscribeInventoryChanges = services.onInventoryChanged(() => {
-      this.refreshInventoryUi()
       this.refreshFtueObjectiveUi()
       this.refreshReturnObjectiveUi()
     })
     this.unsubscribeCurrencyChanges = services.onCurrencyChanged(() => {
-      this.refreshCurrencyUi()
       this.refreshUpgradeUi()
       this.refreshFtueObjectiveUi()
       this.refreshReturnObjectiveUi()
@@ -471,11 +460,6 @@ export class RanchScene extends Phaser.Scene {
     this.interactionFeedback?.setPosition(this.scale.width * 0.5, HUD_SAFE_TOP + 14)
   }
 
-  private layoutInventoryUi(): void {
-    this.currencyLabel?.setPosition(this.scale.width - 18, HUD_SAFE_TOP + 14)
-    this.inventoryLabel?.setPosition(this.scale.width - 18, HUD_SAFE_TOP + 38)
-  }
-
   private createUpgradeUi(): void {
     this.upgradePanelBg = this.add
       .rectangle(0, 0, 0, 0, 0x10241e, 0.88)
@@ -517,6 +501,20 @@ export class RanchScene extends Phaser.Scene {
       })
 
       this.upgradeEntryLabels.set(upgradeId, label)
+    })
+
+    this.configureUpgradeUiInteractivity()
+  }
+
+  private configureUpgradeUiInteractivity(): void {
+    const usePointerUpgradeControls = !this.inputPrefersTouch
+    this.upgradeEntryLabels.forEach((entry) => {
+      if (usePointerUpgradeControls) {
+        entry.setInteractive({ useHandCursor: true })
+        return
+      }
+
+      entry.disableInteractive()
     })
   }
 
@@ -1803,54 +1801,6 @@ export class RanchScene extends Phaser.Scene {
       .setVisible(false)
   }
 
-  private createInventoryUi(): void {
-    this.inventoryLabel = this.add
-      .text(0, 0, '', {
-        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-        fontSize: '12px',
-        color: INVENTORY_LABEL_COLOR,
-        backgroundColor: '#10241ecc',
-      })
-      .setPadding(8, 4, 8, 4)
-      .setOrigin(1, 0)
-      .setDepth(120)
-      .setVisible(true)
-  }
-
-  private createCurrencyUi(): void {
-    this.currencyLabel = this.add
-      .text(0, 0, '', {
-        fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-        fontSize: '12px',
-        color: CURRENCY_LABEL_COLOR,
-        backgroundColor: '#10241ecc',
-      })
-      .setPadding(8, 4, 8, 4)
-      .setOrigin(1, 0)
-      .setDepth(120)
-      .setVisible(true)
-  }
-
-  private refreshInventoryUi(): void {
-    if (!this.inventoryLabel) {
-      return
-    }
-
-    const services = getGameServices(this)
-    const inventory = services.getInventorySnapshot()
-    this.inventoryLabel.setText(this.getInventorySummaryText(inventory))
-  }
-
-  private refreshCurrencyUi(): void {
-    if (!this.currencyLabel) {
-      return
-    }
-
-    const services = getGameServices(this)
-    const balance = services.getCurrencyBalance()
-    this.currencyLabel.setText(`Coins: ${balance}`)
-  }
-
   private refreshUpgradeUi(): void {
     const services = getGameServices(this)
     const upgradeState = services.getUpgradeStateSnapshot()
@@ -2012,7 +1962,6 @@ export class RanchScene extends Phaser.Scene {
         `Objective claimed. +${claim.rewardAmount} coins.`,
         FEEDBACK_COLOR_SUCCESS,
       )
-      this.refreshCurrencyUi()
       this.refreshReturnObjectiveUi(claim.state)
       return
     }
@@ -2031,21 +1980,6 @@ export class RanchScene extends Phaser.Scene {
 
     this.showInteractionFeedback('No return objective is active yet.', FEEDBACK_COLOR_DEFAULT)
     this.refreshReturnObjectiveUi(claim.state)
-  }
-
-  private getInventorySummaryText(inventory: Readonly<Record<string, number>>): string {
-    const entries = Object.entries(inventory)
-      .filter((entry) => entry[1] > 0)
-      .sort((left, right) => left[0].localeCompare(right[0]))
-
-    if (entries.length === 0) {
-      return 'Inventory: empty'
-    }
-
-    const summary = entries
-      .map(([itemId, quantity]) => `${this.formatInventoryItemLabel(itemId)} x${quantity}`)
-      .join(' • ')
-    return `Inventory: ${summary}`
   }
 
   private formatInventoryItemLabel(itemId: string): string {
@@ -2312,7 +2246,6 @@ export class RanchScene extends Phaser.Scene {
       const services = getGameServices(this)
       const config = getAnimalProductionConfig(slot.configId)
       const inventoryTotal = services.addInventoryItem(config.productItemId, 1)
-      this.refreshInventoryUi()
 
       slot.hasProductReady = false
       slot.isFed = false
@@ -2747,7 +2680,6 @@ export class RanchScene extends Phaser.Scene {
 
     const services = getGameServices(this)
     const inventoryTotal = services.addInventoryItem(seedConfig.yieldItemId, 1)
-    this.refreshInventoryUi()
 
     this.showInteractionFeedback(
       `Harvested ${this.formatInventoryItemLabel(seedConfig.yieldItemId)} (+1).`,
@@ -3014,8 +2946,6 @@ export class RanchScene extends Phaser.Scene {
       latestBalance = sale.balance
     })
 
-    this.refreshInventoryUi()
-    this.refreshCurrencyUi()
     const genericSoldQuantity = soldQuantity - orderFulfillment.consumedQuantity
     if (orderFulfillment.fulfilledOrderCount > 0 && genericSoldQuantity > 0) {
       this.showInteractionFeedback(

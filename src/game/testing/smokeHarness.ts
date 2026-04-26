@@ -9,8 +9,12 @@ import { SCENE_KEYS, type PlayableSceneKey } from '../constants'
 import { getRanchMapWorldSize, ranchMapContract, type RanchMapContract } from '../maps/ranchMap'
 import type { BarnScene, BarnSceneDebugUiSnapshot } from '../scenes/BarnScene'
 import type { RanchScene, RanchSceneDebugUiSnapshot } from '../scenes/RanchScene'
-import type { UiScene, UiSceneDebugReturnSessionSummaryModalSnapshot } from '../scenes/UiScene'
-import { getGameServices } from '../systems/runtime'
+import type {
+  UiScene,
+  UiSceneDebugHudSnapshot,
+  UiSceneDebugReturnSessionSummaryModalSnapshot,
+} from '../scenes/UiScene'
+import { getGameServices, type RanchHudAction } from '../systems/runtime'
 
 const SMOKE_QUERY_PARAM = 'smokeTest'
 const SMOKE_WINDOW_KEY = '__TINY_RANCH_SMOKE__'
@@ -77,6 +81,23 @@ interface ScreenBounds {
   y: number
   width: number
   height: number
+}
+
+interface HudButtonSnapshot {
+  label: string
+  selected: boolean
+  center: ScreenPoint
+  bounds: ScreenBounds
+}
+
+interface HudSnapshot {
+  isVisible: boolean
+  coinsText: string
+  inventoryText: string
+  seedText: string
+  selectedActionText: string
+  toolbarBounds: ScreenBounds
+  actionButtons: Record<RanchHudAction, HudButtonSnapshot>
 }
 
 interface RanchMapSmokeSnapshot {
@@ -246,6 +267,7 @@ interface TinyRanchSmokeHarness {
   debugClaimCurrentReturnObjective(): ReturnObjectiveClaimDebugResult
   getBarnSnapshot(): BarnSnapshot
   getBarnHandoffSnapshot(): BarnHandoffSnapshot
+  getHudSnapshot(): HudSnapshot
   getRanchUiSnapshot(): RanchUiSnapshot
   getBarnUiSnapshot(): BarnUiSnapshot
   getReturnSessionSummaryModalSnapshot(): ReturnSessionSummaryModalSnapshot
@@ -260,6 +282,7 @@ interface TinyRanchSmokeHarness {
   debugGetPlantedCropTiles(): Array<{ x: number; y: number }>
   debugForceCropToMature(tileX: number, tileY: number): void
   debugSeedInventory(itemId: string, quantity: number): void
+  debugGrantCoins(amount: number): number
   startFrameHealthSampling(options?: FrameHealthSamplingOptions): void
   stopFrameHealthSampling(): FrameHealthMetrics
 }
@@ -435,6 +458,33 @@ function getTileScreenPoint(game: Phaser.Game, tileX: number, tileY: number): Sc
   }
 }
 
+function convertGameBoundsToScreenBounds(
+  game: Phaser.Game,
+  bounds: ScreenBounds,
+): ScreenBounds {
+  const canvas = game.canvas as HTMLCanvasElement | null
+  if (!canvas) {
+    throw new Error('Game canvas is not available.')
+  }
+
+  const rect = canvas.getBoundingClientRect()
+  const canvasGameWidth = game.scale.width
+  const canvasGameHeight = game.scale.height
+  if (!Number.isFinite(canvasGameWidth) || !Number.isFinite(canvasGameHeight)) {
+    throw new Error('Game scale dimensions are not available.')
+  }
+
+  const cssScaleX = rect.width / canvasGameWidth
+  const cssScaleY = rect.height / canvasGameHeight
+
+  return {
+    x: rect.left + bounds.x * cssScaleX,
+    y: rect.top + bounds.y * cssScaleY,
+    width: bounds.width * cssScaleX,
+    height: bounds.height * cssScaleY,
+  }
+}
+
 function getRanchMapSnapshot(game: Phaser.Game): RanchMapSmokeSnapshot {
   const scene = getRanchSceneOrThrow(game)
   const mapRoot = (scene as unknown as { mapRoot?: Phaser.GameObjects.Container }).mapRoot
@@ -535,6 +585,15 @@ function debugSeedInventory(game: Phaser.Game, itemId: string, quantity: number)
 
   const services = getGameServices(getServiceSceneOrThrow(game))
   services.addInventoryItem(itemId, Math.floor(quantity))
+}
+
+function debugGrantCoins(game: Phaser.Game, amount: number): number {
+  if (!Number.isFinite(amount) || Math.floor(amount) <= 0) {
+    throw new Error('Coin grant amount must be a positive integer.')
+  }
+
+  const services = getGameServices(getServiceSceneOrThrow(game))
+  return services.addCurrency(Math.floor(amount), 'smoke:grant_coins')
 }
 
 class FrameHealthSampler {
@@ -859,6 +918,39 @@ function getBarnUiSnapshot(game: Phaser.Game): BarnUiSnapshot {
   }
 }
 
+function getHudSnapshot(game: Phaser.Game): HudSnapshot {
+  const scene = getUiSceneOrThrow(game)
+  const snapshot: UiSceneDebugHudSnapshot = scene.getDebugHudSnapshot()
+  const convertButton = (
+    button: UiSceneDebugHudSnapshot['actionButtons'][RanchHudAction],
+  ): HudButtonSnapshot => {
+    const bounds = convertGameBoundsToScreenBounds(game, button.bounds)
+    return {
+      label: button.label,
+      selected: button.selected,
+      center: {
+        x: bounds.x + bounds.width / 2,
+        y: bounds.y + bounds.height / 2,
+      },
+      bounds,
+    }
+  }
+
+  return {
+    isVisible: snapshot.isVisible,
+    coinsText: snapshot.coinsText,
+    inventoryText: snapshot.inventoryText,
+    seedText: snapshot.seedText,
+    selectedActionText: snapshot.selectedActionText,
+    toolbarBounds: convertGameBoundsToScreenBounds(game, snapshot.toolbarBounds),
+    actionButtons: {
+      plant: convertButton(snapshot.actionButtons.plant),
+      harvest: convertButton(snapshot.actionButtons.harvest),
+      sell: convertButton(snapshot.actionButtons.sell),
+    },
+  }
+}
+
 function getRanchUiSnapshot(game: Phaser.Game): RanchUiSnapshot {
   const scene = getRanchSceneOrThrow(game)
   const snapshot: RanchSceneDebugUiSnapshot = scene.getDebugUiSnapshot()
@@ -965,6 +1057,7 @@ export function installSmokeHarness(game: Phaser.Game): void {
       debugClaimCurrentReturnObjective(game),
     getBarnSnapshot: (): BarnSnapshot => getBarnSnapshot(game),
     getBarnHandoffSnapshot: (): BarnHandoffSnapshot => getBarnHandoffSnapshot(game),
+    getHudSnapshot: (): HudSnapshot => getHudSnapshot(game),
     getRanchUiSnapshot: (): RanchUiSnapshot => getRanchUiSnapshot(game),
     getBarnUiSnapshot: (): BarnUiSnapshot => getBarnUiSnapshot(game),
     getReturnSessionSummaryModalSnapshot: (): ReturnSessionSummaryModalSnapshot =>
@@ -991,6 +1084,7 @@ export function installSmokeHarness(game: Phaser.Game): void {
     debugSeedInventory: (itemId: string, quantity: number): void => {
       debugSeedInventory(game, itemId, quantity)
     },
+    debugGrantCoins: (amount: number): number => debugGrantCoins(game, amount),
     startFrameHealthSampling: (options: FrameHealthSamplingOptions = {}): void => {
       frameHealthSampler.start(options)
     },
