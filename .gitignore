@@ -13,6 +13,7 @@ dist-ssr
 artifacts/retention-health
 artifacts/retention-release-gate
 artifacts/retention-baseline-diff
+artifacts/barn-mvp-release-gate
 *.local
 
 # Editor directories and files

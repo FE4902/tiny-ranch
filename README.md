@@ -259,6 +259,24 @@ commands, and direct artifact/log paths for triage.
 For full release workflow and fallback procedure when one sub-gate fails, see
 `docs/ver-102-retention-release-gate-orchestrator.md`.
 
+Run the one-command Barn MVP closeout gate with:
+
+```bash
+npm run gate:barn:mvp
+```
+
+This gate reuses the Barn smoke coverage in deterministic stages for first-run handoff, recipe
+unlock, mobile processing/claim/order shipment, save/reload persistence, and market-order duplicate
+claim protection. It writes:
+
+- `artifacts/barn-mvp-release-gate/barn-mvp-release-gate-summary.json`
+- `artifacts/barn-mvp-release-gate/barn-mvp-release-gate-summary.md`
+- `artifacts/barn-mvp-release-gate/barn-mvp-release-gate-artifact-index.json`
+- `artifacts/barn-mvp-release-gate/logs/*.log`
+- `artifacts/barn-mvp-release-gate/reports/*.playwright.json`
+
+For stage order and Barn lane triage, see `docs/ver-120-barn-mvp-release-gate.md`.
+
 ## Project Structure
 
 - `src/game/config` contains the Phaser runtime configuration
