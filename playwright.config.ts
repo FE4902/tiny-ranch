@@ -7,7 +7,7 @@ const webServer = externalBaseUrl
   ? undefined
   : {
       command:
-        'VITE_EXPERIMENT_PHASER_BUILD=package pnpm run build && pnpm run preview --host 127.0.0.1 --port 4173',
+        'VITE_EXPERIMENT_PHASER_BUILD=package npm run build && npm run preview -- --host 127.0.0.1 --port 4173',
       url: LOCAL_BASE_URL,
       reuseExistingServer: !process.env.CI,
       timeout: 180_000,
