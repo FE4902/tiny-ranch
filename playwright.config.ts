@@ -1,6 +1,17 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const BASE_URL = 'http://127.0.0.1:4173'
+const LOCAL_BASE_URL = 'http://127.0.0.1:4173'
+const externalBaseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim()
+const BASE_URL = externalBaseUrl || LOCAL_BASE_URL
+const webServer = externalBaseUrl
+  ? undefined
+  : {
+      command:
+        'VITE_EXPERIMENT_PHASER_BUILD=package pnpm run build && pnpm run preview --host 127.0.0.1 --port 4173',
+      url: LOCAL_BASE_URL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 180_000,
+    }
 
 export default defineConfig({
   testDir: './tests/smoke',
@@ -14,13 +25,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  webServer: {
-    command:
-      'VITE_EXPERIMENT_PHASER_BUILD=package pnpm run build && pnpm run preview --host 127.0.0.1 --port 4173',
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-  },
+  ...(webServer ? { webServer } : {}),
   projects: [
     {
       name: 'desktop-chromium',

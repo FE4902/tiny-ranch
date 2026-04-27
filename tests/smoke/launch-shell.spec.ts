@@ -152,6 +152,10 @@ async function expectAssetFetches(page: Page, assetPath: string): Promise<void> 
   expect(result.contentType, `${assetPath} should include a content type`).not.toBeNull()
 }
 
+function resolveAssetPath(pageUrl: string, assetPath: string): string {
+  return new URL(assetPath, pageUrl).pathname
+}
+
 async function waitForSmokeHarness(page: Page): Promise<void> {
   await page.waitForFunction(
     (harnessKey: string) => {
@@ -315,51 +319,57 @@ test('production launch shell exposes metadata and boots the game', async ({ pag
     pageErrors.push(error.message)
   })
 
-  await page.goto('/?smokeTest=1', { waitUntil: 'domcontentloaded' })
+  await page.goto('./?smokeTest=1', { waitUntil: 'domcontentloaded' })
+  const expectedManifestPath = resolveAssetPath(page.url(), 'site.webmanifest')
+  const expectedFaviconPath = resolveAssetPath(page.url(), 'favicon.svg')
+  const expectedAppleIconPath = resolveAssetPath(page.url(), 'apple-touch-icon.png')
+  const expectedAppIconPath = resolveAssetPath(page.url(), 'app-icon.svg')
+  const expectedShareCardPath = resolveAssetPath(page.url(), 'share-card.svg')
 
   const metadata = await page.evaluate(resolveLaunchMetadata)
   expect(metadata.title).toBe(EXPECTED_TITLE)
   expect(metadata.description).toBe(EXPECTED_DESCRIPTION)
   expect(metadata.applicationName).toBe('Tiny Ranch')
   expect(metadata.themeColor).toBe('#173c2e')
-  expect(metadata.manifestHref).toBe('/site.webmanifest')
-  expect(metadata.faviconHref).toBe('/favicon.svg')
-  expect(metadata.appleIconHref).toBe('/apple-touch-icon.png')
+  expect(metadata.manifestHref).toBe(expectedManifestPath)
+  expect(metadata.faviconHref).toBe(expectedFaviconPath)
+  expect(metadata.appleIconHref).toBe(expectedAppleIconPath)
   expect(metadata.ogTitle).toBe(EXPECTED_TITLE)
   expect(metadata.ogDescription).toBe(EXPECTED_SHARE_DESCRIPTION)
-  expect(metadata.ogImage).toBe('/share-card.svg')
+  expect(metadata.ogImage).toBe(expectedShareCardPath)
   expect(metadata.twitterCard).toBe('summary_large_image')
   expect(metadata.twitterTitle).toBe(EXPECTED_TITLE)
   expect(metadata.twitterDescription).toBe(EXPECTED_SHARE_DESCRIPTION)
-  expect(metadata.twitterImage).toBe('/share-card.svg')
+  expect(metadata.twitterImage).toBe(expectedShareCardPath)
 
-  await expectAssetFetches(page, '/favicon.svg')
-  await expectAssetFetches(page, '/app-icon.svg')
-  await expectAssetFetches(page, '/apple-touch-icon.png')
-  await expectAssetFetches(page, '/share-card.svg')
+  await expectAssetFetches(page, expectedFaviconPath)
+  await expectAssetFetches(page, expectedAppIconPath)
+  await expectAssetFetches(page, expectedAppleIconPath)
+  await expectAssetFetches(page, expectedShareCardPath)
 
-  const manifest = await page.evaluate(async () => {
-    const response = await fetch('/site.webmanifest', { cache: 'no-store' })
+  const manifest = await page.evaluate(async (manifestPath) => {
+    const response = await fetch(manifestPath, { cache: 'no-store' })
     return {
       ok: response.ok,
       status: response.status,
       body: await response.json(),
     }
-  })
+  }, expectedManifestPath)
 
   expect(manifest.ok).toBe(true)
   expect(manifest.status).toBe(200)
   expect(manifest.body).toMatchObject({
     name: 'Tiny Ranch',
     short_name: 'Tiny Ranch',
-    start_url: '/',
+    start_url: './',
+    scope: './',
     display: 'standalone',
     theme_color: '#173c2e',
   })
   expect(manifest.body.icons).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        src: '/app-icon.svg',
+        src: 'app-icon.svg',
         sizes: 'any',
         type: 'image/svg+xml',
       }),
