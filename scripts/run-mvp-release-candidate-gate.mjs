@@ -22,7 +22,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'production_build',
     title: 'Production build',
-    command: () => ['npm', 'run', 'build'],
+    command: () => ['pnpm', 'run', 'build'],
     coverage: ['typescript_contracts', 'vite_production_bundle', 'phaser_core_build_profile'],
     docs: ['README.md', 'docs/ver-40-core-default-rollout.md'],
     owner: 'core_runtime',
@@ -32,7 +32,7 @@ const STAGE_DEFINITIONS = [
   {
     id: 'bundle_budget',
     title: 'Bundle budget',
-    command: () => ['npm', 'run', 'bundle:measure'],
+    command: () => ['pnpm', 'run', 'bundle:measure'],
     coverage: ['production_bundle_rebuild', 'total_js_gzip_budget', 'bootstrap_gzip_budget'],
     docs: ['README.md', 'docs/ver-38-bundle-prototypes.md', 'docs/ver-40-core-default-rollout.md'],
     owner: 'bundle_budget',
@@ -42,7 +42,8 @@ const STAGE_DEFINITIONS = [
     id: 'core_desktop_smoke',
     title: 'Desktop core smoke',
     command: () => [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -66,7 +67,8 @@ const STAGE_DEFINITIONS = [
     id: 'mobile_touch_smoke',
     title: 'Mobile core and touch smoke',
     command: () => [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=mobile-chromium',
@@ -91,7 +93,8 @@ const STAGE_DEFINITIONS = [
     id: 'save_migration_smoke',
     title: 'Save migration smoke',
     command: () => [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -111,10 +114,9 @@ const STAGE_DEFINITIONS = [
     id: 'retention_release_gate',
     title: 'Retention release gate',
     command: (options) => [
-      'npm',
+      'pnpm',
       'run',
       'gate:retention:release',
-      '--',
       '--runtime-budgets=tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json',
       `--output-dir=${path.join(options.outputDir, 'retention-release-gate')}`,
     ],
@@ -147,10 +149,9 @@ const STAGE_DEFINITIONS = [
     id: 'barn_mvp_gate',
     title: 'Barn MVP gate',
     command: (options) => [
-      'npm',
+      'pnpm',
       'run',
       'gate:barn:mvp',
-      '--',
       `--output-dir=${path.join(options.outputDir, 'barn-mvp-release-gate')}`,
     ],
     coverage: [
@@ -193,6 +194,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -633,7 +638,7 @@ function buildSummary(options, stageResults) {
     issueIdentifier: 'VER-121',
     generatedAt,
     gate: {
-      command: 'npm run gate:mvp:release',
+      command: 'pnpm run gate:mvp:release',
       outputDir: toRelativeRepoPath(options.outputDir),
       failFast: options.failFast,
       git: resolveGitMetadata(),
@@ -765,7 +770,7 @@ function renderSummaryMarkdown(summary) {
   lines.push('1. Start with the first failed row in `Failures`.')
   lines.push('2. Open the listed owner doc, then the first artifact/log path for that stage.')
   lines.push('3. Re-run the exact command in the failed row, or use `--no-fail-fast` for a broader local pass.')
-  lines.push('4. Keep the lower-level gate callable independently and rerun `npm run gate:mvp:release` before launch signoff.')
+  lines.push('4. Keep the lower-level gate callable independently and rerun `pnpm run gate:mvp:release` before launch signoff.')
   lines.push('')
   lines.push('## Artifact Paths', '')
   lines.push(`- Summary JSON: \`${summary.jsonArtifactPath}\``)

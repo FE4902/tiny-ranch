@@ -28,7 +28,7 @@ const GO_NO_GO_CRITERIA = [
 const OWNER_FOLLOW_UPS = [
   'Board or CTO reviews mvp-launch-handoff-summary.md before deploy approval.',
   'Release owner deploys the reviewed commit with the intended telemetry sink configuration.',
-  'Release owner reruns npm run test:smoke:launch-shell against the deployed preview or production target.',
+  'Release owner reruns pnpm run test:smoke:launch-shell against the deployed preview or production target.',
   'Gameplay owner monitors first-session, retention, Barn order, and telemetry delivery signals after launch.',
 ]
 
@@ -36,7 +36,7 @@ const ROLLBACKS = [
   {
     id: 'build_profile',
     title: 'Build profile rollback',
-    commands: ['npm run build:rollback', 'npm run bundle:measure:rollback'],
+    commands: ['pnpm run build:rollback', 'pnpm run bundle:measure:rollback'],
     notes:
       'Set VITE_EXPERIMENT_PHASER_BUILD=package for the deployment build if the default core Phaser profile blocks production boot.',
     docs: ['README.md', 'package.json'],
@@ -45,9 +45,9 @@ const ROLLBACKS = [
     id: 'telemetry_sink',
     title: 'Telemetry sink rollback',
     commands: [
-      'VITE_TELEMETRY_SINK=none npm run build',
-      'VITE_TELEMETRY_SINK=console npm run build',
-      'npm run test:smoke:launch-shell',
+      'VITE_TELEMETRY_SINK=none pnpm run build',
+      'VITE_TELEMETRY_SINK=console pnpm run build',
+      'pnpm run test:smoke:launch-shell',
     ],
     notes:
       'Remove VITE_POSTHOG_API_KEY and optional PostHog overrides from deployment secrets before redeploying with none or console delivery.',
@@ -57,9 +57,9 @@ const ROLLBACKS = [
     id: 'retention_tuning',
     title: 'Retention tuning rollback',
     commands: [
-      'VITE_RETENTION_TUNING_PACK=safe-default-v1 npm run build',
-      'npm run gate:retention:release',
-      'npm run gate:mvp:release',
+      'VITE_RETENTION_TUNING_PACK=safe-default-v1 pnpm run build',
+      'pnpm run gate:retention:release',
+      'pnpm run gate:mvp:release',
     ],
     notes:
       'Use the built-in safe-default-v1 pack or the retentionKillSwitch smoke query for local isolation, then rerun the release gates before redeploy.',
@@ -68,7 +68,7 @@ const ROLLBACKS = [
   {
     id: 'barn_release_state',
     title: 'Barn release rollback',
-    commands: ['git revert <barn-lane-commit>', 'npm run gate:barn:mvp', 'npm run gate:mvp:release'],
+    commands: ['git revert <barn-lane-commit>', 'pnpm run gate:barn:mvp', 'pnpm run gate:mvp:release'],
     notes:
       'Barn MVP has no production env kill switch in this build. Roll back by reverting the Barn lane change set or source-disabling Barn entry/config, then rerun the Barn and MVP gates.',
     docs: ['docs/ver-120-barn-mvp-release-gate.md', 'docs/ver-118-barn-mobile-qa.md'],
@@ -100,6 +100,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -421,8 +425,8 @@ function parseMvpGateMetrics(gateOutputDir) {
 
 function buildReleaseGateStage(options) {
   const command = options.gateFailFast
-    ? ['npm', 'run', 'gate:mvp:release', '--', `--output-dir=${options.gateOutputDir}`]
-    : ['npm', 'run', 'gate:mvp:release', '--', `--output-dir=${options.gateOutputDir}`, '--no-fail-fast']
+    ? ['pnpm', 'run', 'gate:mvp:release', `--output-dir=${options.gateOutputDir}`]
+    : ['pnpm', 'run', 'gate:mvp:release', `--output-dir=${options.gateOutputDir}`, '--no-fail-fast']
   const artifactPaths = collectMvpGateArtifactPaths(options.gateOutputDir)
   let result = null
   let logPaths = null
@@ -485,7 +489,7 @@ function buildLaunchShellStage(options) {
   ensureDir(reportsDir)
 
   const reportPath = path.join(reportsDir, 'launch_shell_preview_smoke.playwright.json')
-  const command = ['npx', 'playwright', 'test', 'tests/smoke/launch-shell.spec.ts', '--reporter=json']
+  const command = ['pnpm', 'exec', 'playwright', 'test', 'tests/smoke/launch-shell.spec.ts', '--reporter=json']
   const result = runProcess(command[0], command.slice(1), {
     PLAYWRIGHT_JSON_OUTPUT_NAME: reportPath,
   })
@@ -647,7 +651,7 @@ function buildSummary(options, stages) {
     issueIdentifier: 'VER-123',
     generatedAt,
     handoff: {
-      command: 'npm run release:handoff',
+      command: 'pnpm run release:handoff',
       outputDir: toRelativeRepoPath(options.outputDir),
       gateOutputDir: toRelativeRepoPath(options.gateOutputDir),
       useExistingGate: options.useExistingGate,
