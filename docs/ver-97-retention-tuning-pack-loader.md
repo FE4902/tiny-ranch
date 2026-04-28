@@ -50,9 +50,9 @@ Both are selectable by config key without gameplay logic changes.
 1. Add or modify pack entries in `returnObjectiveEconomyTuning.shared.js`.
 2. Keep each pack versioned (`id` + `version`).
 3. Run deterministic checks:
-   - `npm run test:retention:tuning-packs`
-   - `npm run test:analytics:retention`
-   - `npm run test:soak:retention`
+   - `pnpm run test:retention:tuning-packs`
+   - `pnpm run test:analytics:retention`
+   - `pnpm run test:soak:retention`
 4. If reward behavior intentionally changes, update deterministic balance baselines in that pack.
 
 ## Rollback Expectations

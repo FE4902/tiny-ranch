@@ -8,7 +8,7 @@ current build.
 
 ## Source Of Truth
 
-- Gate command: `npm run gate:mvp:release`
+- Gate command: `pnpm run gate:mvp:release`
 - Orchestrator script: `scripts/run-mvp-release-candidate-gate.mjs`
 - Summary artifacts: `artifacts/mvp-release-candidate-gate/`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`mvp-release-candidate-gate` job)
@@ -18,32 +18,32 @@ current build.
 The gate runs existing project gates in this deterministic order:
 
 1. Production build
-   - Command: `npm run build`
+   - Command: `pnpm run build`
    - Owner docs: `README.md`, `docs/ver-40-core-default-rollout.md`
 2. Bundle budget
-   - Command: `npm run bundle:measure`
+   - Command: `pnpm run bundle:measure`
    - Owner docs: `docs/ver-38-bundle-prototypes.md`, `docs/ver-40-core-default-rollout.md`
 3. Desktop core smoke
-   - Command: `npx playwright test --project=desktop-chromium tests/smoke/core-loop.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/core-loop.spec.ts --reporter=json`
    - Owner docs: `README.md`, `docs/ver-42-startup-telemetry-baseline.md`
 4. Mobile core and touch smoke
-   - Command: `npx playwright test --project=mobile-chromium tests/smoke/core-loop.spec.ts tests/smoke/touch-path.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=mobile-chromium tests/smoke/core-loop.spec.ts tests/smoke/touch-path.spec.ts --reporter=json`
    - Owner docs: `README.md`, `docs/ver-42-startup-telemetry-baseline.md`
 5. Save migration smoke
-   - Command: `npx playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts --reporter=json`
    - Owner docs: `docs/ver-93-save-migration-compatibility-matrix.md`
 6. Retention release gate
-   - Command: `npm run gate:retention:release`
+   - Command: `pnpm run gate:retention:release`
    - Owner docs: `docs/ver-102-retention-release-gate-orchestrator.md`
 7. Barn MVP gate
-   - Command: `npm run gate:barn:mvp`
+   - Command: `pnpm run gate:barn:mvp`
    - Owner docs: `docs/ver-120-barn-mvp-release-gate.md`
 
 Default mode is fail-fast. Later stages are marked `skipped` after the first failure so the
 summary points to the first launch blocker. For a broader local triage pass, run:
 
 ```bash
-npm run gate:mvp:release -- --no-fail-fast
+pnpm run gate:mvp:release -- --no-fail-fast
 ```
 
 ## Artifacts
@@ -68,7 +68,7 @@ owner docs, log paths, report paths, and nested gate artifact paths.
 2. Start with the first failed row in `Failures`.
 3. Open the listed owner doc, then the first artifact/log path for that stage.
 4. Re-run the exact failed command from the summary if the full gate is too slow.
-5. Fix the owning subsystem and rerun `npm run gate:mvp:release`.
+5. Fix the owning subsystem and rerun `pnpm run gate:mvp:release`.
 
 ## Expected Release Use
 
@@ -81,7 +81,7 @@ After this top-level gate passes, run the separate launch-shell readiness check 
 [VER-122](/VER/issues/VER-122):
 
 ```bash
-npm run test:smoke:launch-shell
+pnpm run test:smoke:launch-shell
 ```
 
 That check keeps [VER-121](/VER/issues/VER-121) as the release-candidate gate while validating the

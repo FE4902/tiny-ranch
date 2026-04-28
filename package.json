@@ -6,9 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "build:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run build",
-    "bundle:measure": "npm run build && node scripts/measure-bundle.mjs",
-    "bundle:measure:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package npm run bundle:measure",
+    "build:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package pnpm run build",
+    "bundle:measure": "pnpm run build && node scripts/measure-bundle.mjs",
+    "bundle:measure:rollback": "VITE_EXPERIMENT_PHASER_BUILD=package pnpm run bundle:measure",
     "balance:check": "node scripts/check-expansion-pacing.mjs",
     "balance:check:return-objectives": "node scripts/check-return-objective-balance.mjs",
     "test:soak:retention": "node scripts/check-retention-soak.mjs",
@@ -24,7 +24,7 @@
     "test:telemetry:retention": "node scripts/validate-retention-telemetry-contract.mjs",
     "analytics:retention:cohort": "node scripts/export-retention-cohorts.mjs",
     "test:analytics:retention-cohort": "node scripts/test-retention-cohort-export.mjs",
-    "test:analytics:retention": "npm run test:retention:tuning-packs && npm run test:telemetry:retention && npm run test:analytics:retention-cohort",
+    "test:analytics:retention": "pnpm run test:retention:tuning-packs && pnpm run test:telemetry:retention && pnpm run test:analytics:retention-cohort",
     "preview": "vite preview",
     "test:smoke": "playwright test",
     "test:smoke:launch-shell": "playwright test tests/smoke/launch-shell.spec.ts",
@@ -39,5 +39,6 @@
   },
   "dependencies": {
     "phaser": "^3.90.0"
-  }
+  },
+  "packageManager": "pnpm@10.31.0"
 }

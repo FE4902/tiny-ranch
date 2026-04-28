@@ -43,6 +43,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -156,7 +160,7 @@ function run() {
 
   if (!fs.existsSync(options.packPath)) {
     throw new Error(
-      `Replay pack not found at ${options.packPath}. Run npm run gate:retention:release first or provide --pack=<path>.`,
+      `Replay pack not found at ${options.packPath}. Run pnpm run gate:retention:release first or provide --pack=<path>.`,
     )
   }
 

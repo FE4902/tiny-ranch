@@ -15,7 +15,7 @@ Add a deterministic economy simulation for return objective rewards so reward tu
   - `src/game/config/returnObjectives.ts`
   - `src/game/config/returnObjectiveStreak.ts`
 - Guardrail script: `scripts/check-return-objective-balance.mjs`
-- Run command: `npm run balance:check:return-objectives`
+- Run command: `pnpm run balance:check:return-objectives`
 
 ## What The Script Replays
 
@@ -106,26 +106,26 @@ Smoke-only query overrides (for local validation) are available when `smokeTest=
 1. Edit objective/streak tuning in `src/game/config/returnObjectiveEconomyTuning.shared.js`.
 2. If Barn output value changes, update `src/game/config/expansionEconomyTuning.shared.js`.
 3. If the Barn milestone recipe changes, update `src/game/config/barnRecipes.shared.js` and the objective `barnRecipeId`.
-4. Run `npm run balance:check:return-objectives`.
+4. Run `pnpm run balance:check:return-objectives`.
 5. If guardrails are intentionally adjusted, update:
    - scenario baselines in the same shared config
    - guardrail thresholds (only when explicitly approved)
 6. Re-run retention analytics checks:
-   - `npm run test:analytics:retention`
-   - `npm run test:telemetry:retention`
+   - `pnpm run test:analytics:retention`
+   - `pnpm run test:telemetry:retention`
 7. Re-run smoke regression before release:
-   - `npm run test:smoke`
-   - `npm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
+   - `pnpm run test:smoke`
+   - `pnpm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
 
 ## Rollout / Rollback Steps
 
 1. Edit `src/game/config/retentionFlags.ts` with the planned rollout state.
 2. Validate analytics contracts:
-   - `npm run test:analytics:retention`
+   - `pnpm run test:analytics:retention`
 3. Validate smoke on both paths:
-   - default flags on: `npm run test:smoke -- --grep "return objective streak increments"`
-   - Barn milestone path: `npm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
-   - kill switch path: `npm run test:smoke -- --grep "retention kill switch disables objective boot assignment and claim flow safely"`
+   - default flags on: `pnpm run test:smoke -- --grep "return objective streak increments"`
+   - Barn milestone path: `pnpm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
+   - kill switch path: `pnpm run test:smoke -- --grep "retention kill switch disables objective boot assignment and claim flow safely"`
 4. Ship once both analytics + smoke checks pass.
 5. Rollback (if needed): set `retentionKillSwitchEnabled` to `true` in the same file, re-run checks, and redeploy.
 
@@ -134,7 +134,7 @@ Barn-specific rollback notes:
 - fastest rollback: use `retentionKillSwitchEnabled` to disable the objective loop immediately
 - Barn-only economy rollback: revert Barn output sell prices in `src/game/config/expansionEconomyTuning.shared.js`
 - Barn-only retention rollback: revert the Barn objective reward or `barnRecipeId` in `src/game/config/returnObjectiveEconomyTuning.shared.js`
-- after any Barn rollback, re-run `npm run balance:check:return-objectives` before shipping
+- after any Barn rollback, re-run `pnpm run balance:check:return-objectives` before shipping
 
 ## Follow-On Stability Gate (VER-96)
 

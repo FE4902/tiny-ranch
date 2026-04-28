@@ -7,7 +7,7 @@ objective/streak evolution does not silently regress heap behavior.
 
 ## Source Of Truth
 
-- Gate command: `npm run test:soak:retention:memory`
+- Gate command: `pnpm run test:soak:retention:memory`
 - Gate spec: `tests/smoke/retention-memory-gate.spec.ts`
 - Threshold fixture: `tests/fixtures/save/retention-memory-gate-thresholds.fixture.json`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-memory-gate` job)
@@ -46,13 +46,13 @@ This JSON is emitted in test logs and attached as Playwright artifacts.
 ## Triage Workflow
 
 1. Re-run only the gate:
-   - `npm run test:soak:retention:memory`
+   - `pnpm run test:soak:retention:memory`
 2. If failure reproduces, inspect the emitted JSON:
    - identify failing `caseKey`
    - review `thresholdExceeded` metrics first
    - check `recentWindowSamples` for drift shape and frame-spike bursts
 3. Open Playwright trace for runtime context:
-   - `npx playwright show-trace test-results/**/trace.zip`
+   - `pnpm exec playwright show-trace test-results/**/trace.zip`
 4. If behavior change is unintentional, fix runtime memory/perf regression and re-run.
 5. If behavior change is intentional and reviewed, update only
    `tests/fixtures/save/retention-memory-gate-thresholds.fixture.json` with a clear rationale.

@@ -112,6 +112,6 @@ If Barn recipes or Barn output prices change intentionally, update:
 Run the Barn baseline checks with:
 
 ```bash
-npm run test:telemetry:retention
-npm run test:smoke -- --project=mobile-chromium tests/smoke/barn-ui.spec.ts
+pnpm run test:telemetry:retention
+pnpm run test:smoke -- --project=mobile-chromium tests/smoke/barn-ui.spec.ts
 ```

@@ -11,12 +11,12 @@ launch-shell validation evidence into a board-readable handoff summary.
 Run the full handoff package with:
 
 ```bash
-npm run release:handoff
+pnpm run release:handoff
 ```
 
 By default, the command:
 
-1. Runs `npm run gate:mvp:release` with nested output at
+1. Runs `pnpm run gate:mvp:release` with nested output at
    `artifacts/mvp-launch-handoff/mvp-release-candidate-gate/`.
 2. Runs the production launch-shell metadata and boot smoke from
    `tests/smoke/launch-shell.spec.ts` with a JSON report.
@@ -25,8 +25,8 @@ By default, the command:
 For a fast packaging pass after a separate release-candidate gate run, use:
 
 ```bash
-npm run gate:mvp:release
-npm run release:handoff -- --use-existing-gate --gate-output-dir=artifacts/mvp-release-candidate-gate
+pnpm run gate:mvp:release
+pnpm run release:handoff -- --use-existing-gate --gate-output-dir=artifacts/mvp-release-candidate-gate
 ```
 
 ## Artifacts
@@ -53,9 +53,9 @@ The markdown summary links to:
 
 Launch is a `GO` only when all criteria are true:
 
-- `npm run build` passes for the current commit.
-- `npm run gate:mvp:release` passes with no failed or skipped stages.
-- `npm run release:handoff` passes and recommends `GO`.
+- `pnpm run build` passes for the current commit.
+- `pnpm run gate:mvp:release` passes with no failed or skipped stages.
+- `pnpm run release:handoff` passes and recommends `GO`.
 - The handoff summary links to MVP, retention, Barn, and launch-shell evidence.
 - Production telemetry envs are intentionally configured or intentionally omitted.
 - Rollback owner and commands are understood before deployment.
@@ -70,12 +70,12 @@ rerun.
 Use this if the default Phaser `core` build profile blocks production boot:
 
 ```bash
-npm run build:rollback
-npm run bundle:measure:rollback
+pnpm run build:rollback
+pnpm run bundle:measure:rollback
 ```
 
 Deployment equivalent: set `VITE_EXPERIMENT_PHASER_BUILD=package`, rebuild, redeploy, and rerun
-`npm run test:smoke:launch-shell`.
+`pnpm run test:smoke:launch-shell`.
 
 Owner docs:
 
@@ -102,8 +102,8 @@ Optional PostHog envs:
 Rollback:
 
 ```bash
-VITE_TELEMETRY_SINK=none npm run build
-npm run test:smoke:launch-shell
+VITE_TELEMETRY_SINK=none pnpm run build
+pnpm run test:smoke:launch-shell
 ```
 
 Also remove `VITE_POSTHOG_API_KEY` and optional PostHog overrides from deployment secrets before
@@ -119,9 +119,9 @@ Owner docs:
 Production tuning rollback:
 
 ```bash
-VITE_RETENTION_TUNING_PACK=safe-default-v1 npm run build
-npm run gate:retention:release
-npm run gate:mvp:release
+VITE_RETENTION_TUNING_PACK=safe-default-v1 pnpm run build
+pnpm run gate:retention:release
+pnpm run gate:mvp:release
 ```
 
 Smoke-only isolation query flags remain available for local reproduction:
@@ -141,8 +141,8 @@ Barn MVP has no production env kill switch in this build. Rollback is source-con
 
 ```bash
 git revert <barn-lane-commit>
-npm run gate:barn:mvp
-npm run gate:mvp:release
+pnpm run gate:barn:mvp
+pnpm run gate:mvp:release
 ```
 
 If a narrower rollback is approved, source-disable the Barn entry or Barn recipe/order config, then

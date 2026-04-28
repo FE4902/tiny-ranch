@@ -8,7 +8,7 @@ Define one reversible economy tuning surface for expansion progression and enfor
 
 - Config file: `src/game/config/expansionEconomyTuning.shared.js`
 - Enforcement script: `scripts/check-expansion-pacing.mjs`
-- Run command: `npm run balance:check`
+- Run command: `pnpm run balance:check`
 
 The shared config is consumed by:
 
@@ -37,6 +37,6 @@ The script fails with exit code `1` when either checkpoint falls outside target 
 ## Reversible Tuning Workflow
 
 1. Edit economy levers in `src/game/config/expansionEconomyTuning.shared.js`.
-2. Run `npm run balance:check`.
-3. Run `npm run test:smoke` to verify the expansion regression flow remains green.
+2. Run `pnpm run balance:check`.
+3. Run `pnpm run test:smoke` to verify the expansion regression flow remains green.
 4. If needed, iterate with config-only changes (scene logic changes are not required for pacing).

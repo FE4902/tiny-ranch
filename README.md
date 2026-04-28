@@ -11,33 +11,33 @@ Tiny Ranch is a cozy mobile-first ranch simulation game on the open web.
 ## Getting Started
 
 ```bash
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Build a production bundle with:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
-`npm run build` now defaults to the Phaser `core` build profile for production bundle size.
+`pnpm run build` now defaults to the Phaser `core` build profile for production bundle size.
 If you need an immediate rollback to the full Phaser package path, run:
 
 ```bash
-npm run build:rollback
+pnpm run build:rollback
 ```
 
 Measure production JS bundle size (raw/minified/gzip) against the mobile-web budget gates with:
 
 ```bash
-npm run bundle:measure
+pnpm run bundle:measure
 ```
 
 To compare against the rollback path, run:
 
 ```bash
-npm run bundle:measure:rollback
+pnpm run bundle:measure:rollback
 ```
 
 CI enforces the same bundle ceilings on every PR and `main` push via
@@ -46,7 +46,7 @@ CI enforces the same bundle ceilings on every PR and `main` push via
 Run the smoke suite locally with:
 
 ```bash
-npm run test:smoke
+pnpm run test:smoke
 ```
 
 The smoke run serves the app with `VITE_EXPERIMENT_PHASER_BUILD=package` and starts the
@@ -64,7 +64,7 @@ Current suites:
 After the unified release-candidate gate passes, validate the production shell and metadata with:
 
 ```bash
-npm run test:smoke:launch-shell
+pnpm run test:smoke:launch-shell
 ```
 
 This command uses the existing Playwright preview server path, so it builds the production bundle,
@@ -83,7 +83,7 @@ Production telemetry is safe by default:
   `VITE_POSTHOG_FLUSH_INTERVAL_MS`, `VITE_POSTHOG_MAX_QUEUE_SIZE`.
 
 Telemetry rollback: set `VITE_TELEMETRY_SINK=none` or `console`, remove PostHog env vars from
-deployment secrets, redeploy, then rerun `npm run test:smoke:launch-shell`.
+deployment secrets, redeploy, then rerun `pnpm run test:smoke:launch-shell`.
 
 For the full launch-shell checklist, see `docs/ver-122-production-launch-shell.md`.
 
@@ -92,7 +92,7 @@ For the full launch-shell checklist, see `docs/ver-122-production-launch-shell.m
 Build the final board-readable launch handoff package with:
 
 ```bash
-npm run release:handoff
+pnpm run release:handoff
 ```
 
 This command runs the unified MVP release-candidate gate, runs the production launch-shell smoke,
@@ -100,10 +100,10 @@ and writes JSON/Markdown handoff evidence under `artifacts/mvp-launch-handoff/`.
 summary links to the MVP gate, nested retention gate, nested Barn gate, and launch-shell metadata
 artifacts.
 
-If `npm run gate:mvp:release` already passed and you only need to regenerate the handoff wrapper:
+If `pnpm run gate:mvp:release` already passed and you only need to regenerate the handoff wrapper:
 
 ```bash
-npm run release:handoff -- --use-existing-gate --gate-output-dir=artifacts/mvp-release-candidate-gate
+pnpm run release:handoff -- --use-existing-gate --gate-output-dir=artifacts/mvp-release-candidate-gate
 ```
 
 Go/no-go criteria, rollback commands, telemetry env requirements, and owner follow-ups are documented
@@ -112,20 +112,20 @@ in `docs/ver-123-mvp-launch-handoff.md`.
 For failure triage:
 
 1. Re-run only the touch suite on mobile:
-   `npm run test:smoke -- --project=mobile-chromium tests/smoke/touch-path.spec.ts`.
+   `pnpm run test:smoke -- --project=mobile-chromium tests/smoke/touch-path.spec.ts`.
 2. Re-run a single project with fresh server startup when needed:
-   `CI=1 npm run test:smoke -- --project=mobile-chromium`.
+   `CI=1 pnpm run test:smoke -- --project=mobile-chromium`.
 3. Open the latest trace:
-   `npx playwright show-trace test-results/**/trace.zip`.
+   `pnpm exec playwright show-trace test-results/**/trace.zip`.
 4. Capture an interactive repro and inspect smoke state in DevTools:
-   `npm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
+   `pnpm run test:smoke:debug` then `window.__TINY_RANCH_SMOKE__.getSnapshot()`.
 
 ### Save migration compatibility matrix
 
 Run the retention save migration matrix gate with:
 
 ```bash
-npm run test:smoke:save-migration
+pnpm run test:smoke:save-migration
 ```
 
 This gate replays representative legacy save fixtures (`pre_objective`, `objective_only`,
@@ -143,7 +143,7 @@ For fixture updates and migration-failure triage, see
 Validate retention objective/streak telemetry contracts with:
 
 ```bash
-npm run test:telemetry:retention
+pnpm run test:telemetry:retention
 ```
 
 This fixture-driven gate validates required payload keys for:
@@ -166,19 +166,19 @@ against both:
 Run deterministic cohort export fixture verification with:
 
 ```bash
-npm run test:analytics:retention-cohort
+pnpm run test:analytics:retention-cohort
 ```
 
 Run both retention analytics checks together (this is what CI runs):
 
 ```bash
-npm run test:analytics:retention
+pnpm run test:analytics:retention
 ```
 
 Export cohort retention indicators from captured events:
 
 ```bash
-npm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
+pnpm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
 ```
 
 ### Frame-health gate triage
@@ -189,20 +189,20 @@ enforces per-project budgets defined in `tests/smoke/frameHealthBudgets.ts`.
 If CI fails on frame-health:
 
 1. Re-run only the gated core-loop smoke for the failing project:
-   `npm run test:smoke -- --project=mobile-chromium tests/smoke/core-loop.spec.ts`
+   `pnpm run test:smoke -- --project=mobile-chromium tests/smoke/core-loop.spec.ts`
    or
-   `npm run test:smoke -- --project=desktop-chromium tests/smoke/core-loop.spec.ts`
+   `pnpm run test:smoke -- --project=desktop-chromium tests/smoke/core-loop.spec.ts`
 2. Read the test log line prefixed with `[frame-health][<project>]` for p95, long-frame count,
    long-frame threshold, and max-frame duration.
 3. Open Playwright artifacts for the failed run:
-   `npx playwright show-trace test-results/**/trace.zip`
+   `pnpm exec playwright show-trace test-results/**/trace.zip`
 4. Adjust budget thresholds only through `tests/smoke/frameHealthBudgets.ts` when an intentional
    performance target change is approved.
 
 Run the deterministic expansion pacing check with:
 
 ```bash
-npm run balance:check
+pnpm run balance:check
 ```
 
 This script reports time-to-first-expansion and time-to-second-expansion checkpoints and fails when either checkpoint drifts outside the configured target range.
@@ -211,7 +211,7 @@ Tuning levers and targets are centralized in `src/game/config/expansionEconomyTu
 Run the deterministic return objective/streak economy check with:
 
 ```bash
-npm run balance:check:return-objectives
+pnpm run balance:check:return-objectives
 ```
 
 This script replays configured objective claim scenarios and reports earned/spent/net currency,
@@ -222,7 +222,7 @@ and documented in `docs/ver-91-objective-streak-economy-guardrails.md`.
 Run the deterministic retention soak matrix (save/load + flag permutations) with:
 
 ```bash
-npm run test:soak:retention
+pnpm run test:soak:retention
 ```
 
 This gate replays long-run retention sessions across all rollout-flag permutations, enforces
@@ -234,7 +234,7 @@ per-case replay digests against source-controlled baselines in
 Run the mobile retention memory-drift gate (heap + frame-spike correlation) with:
 
 ```bash
-npm run test:soak:retention:memory
+pnpm run test:soak:retention:memory
 ```
 
 This gate runs deterministic retention loops on the mobile Chromium profile, enforces
@@ -245,7 +245,7 @@ policy, see `docs/ver-100-mobile-memory-drift-gate.md`.
 Run the retention health snapshot report (aggregated deterministic readiness view) with:
 
 ```bash
-npm run report:retention:health
+pnpm run report:retention:health
 ```
 
 This generates machine-readable + human-readable artifacts at:
@@ -256,7 +256,7 @@ This generates machine-readable + human-readable artifacts at:
 For CI-equivalent output that also includes Playwright migration + memory checks:
 
 ```bash
-npm run report:retention:health -- --run-playwright
+pnpm run report:retention:health -- --run-playwright
 ```
 
 Thresholds are source-controlled in
@@ -266,7 +266,7 @@ workflow are documented in `docs/ver-101-retention-health-snapshot-gate.md`.
 Run the retention baseline diff gate (baseline-vs-current regression layer) with:
 
 ```bash
-npm run gate:retention:baseline-diff
+pnpm run gate:retention:baseline-diff
 ```
 
 This command compares retention health summary metrics against source-controlled baseline fixtures
@@ -280,7 +280,7 @@ Baseline fixtures and drift thresholds live in
 For intentional tuning updates, refresh baseline values with:
 
 ```bash
-npm run gate:retention:baseline-diff -- --update-baseline
+pnpm run gate:retention:baseline-diff -- --update-baseline
 ```
 
 Baseline diff policy and workflow are documented in
@@ -289,7 +289,7 @@ Baseline diff policy and workflow are documented in
 Run the one-command retention release gate orchestrator with:
 
 ```bash
-npm run gate:retention:release
+pnpm run gate:retention:release
 ```
 
 This command runs balance, migration smoke, soak, memory, and health snapshot gates in one
@@ -313,7 +313,7 @@ For full release workflow and fallback procedure when one sub-gate fails, see
 Run the one-command Barn MVP closeout gate with:
 
 ```bash
-npm run gate:barn:mvp
+pnpm run gate:barn:mvp
 ```
 
 This gate reuses the Barn smoke coverage in deterministic stages for first-run handoff, recipe
@@ -331,7 +331,7 @@ For stage order and Barn lane triage, see `docs/ver-120-barn-mvp-release-gate.md
 Run the top-level MVP release-candidate gate with:
 
 ```bash
-npm run gate:mvp:release
+pnpm run gate:mvp:release
 ```
 
 This is the launch signoff command after [VER-120](/VER/issues/VER-120). It reuses the existing
@@ -347,7 +347,7 @@ gate, and Barn MVP gate in deterministic order. It writes:
 Default mode is fail-fast. For broader local triage, run:
 
 ```bash
-npm run gate:mvp:release -- --no-fail-fast
+pnpm run gate:mvp:release -- --no-fail-fast
 ```
 
 For stage ownership, artifact mapping, and launch-candidate triage, see

@@ -2,15 +2,15 @@
 
 ## Scope
 
-When `npm run gate:retention:release` fails, emit a replay pack that captures deterministic stage
+When `pnpm run gate:retention:release` fails, emit a replay pack that captures deterministic stage
 context so the failure can be replayed locally with one command.
 
 ## Source Of Truth
 
 - Orchestrator: `scripts/run-retention-release-gate.mjs`
 - Replay helper: `scripts/replay-retention-gate-stage.mjs`
-- Gate command: `npm run gate:retention:release`
-- Replay command: `npm run gate:retention:replay`
+- Gate command: `pnpm run gate:retention:release`
+- Replay command: `pnpm run gate:retention:replay`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-release-gate` job)
 
 ## Replay Pack Artifacts
@@ -44,18 +44,18 @@ This ensures replay context is preserved specifically on failing CI runs.
 1. Open CI artifact `retention-release-gate-replay-pack` (or full `retention-release-gate` bundle).
 2. Read `replay-pack/retention-release-gate-replay-pack.md` and identify failed stage(s).
 3. Reproduce first failure locally:
-   - `npm run gate:retention:replay`
+   - `pnpm run gate:retention:replay`
 4. Reproduce a specific failing stage when needed:
-   - `npm run gate:retention:replay -- --stage=<stage-id>`
+   - `pnpm run gate:retention:replay -- --stage=<stage-id>`
 5. Apply fix and verify stage replay passes.
 6. Re-run full release gate:
-   - `npm run gate:retention:release`
+   - `pnpm run gate:retention:release`
 7. Confirm both gate summary and runtime timing artifacts are `PASS` before merge.
 
 ## Rerun Attempt Tuning
 
 - Default rerun attempts: `1` (one retry after the first failed attempt).
-- Override locally: `npm run gate:retention:release -- --rerun-attempts=<count>`.
+- Override locally: `pnpm run gate:retention:release -- --rerun-attempts=<count>`.
 - Increase attempts only to improve diagnostic signal; the gate still fails on both deterministic failures and flakes.
 - Do not use rerun attempts to auto-pass flaky runs. Strict-fail remains the default and expected CI policy.
 

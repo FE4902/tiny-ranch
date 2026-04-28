@@ -9,8 +9,8 @@ sequence, fails on blocking stages, and emits a single machine-readable + human-
 
 - Orchestrator script: `scripts/run-retention-release-gate.mjs`
 - Replay helper script: `scripts/replay-retention-gate-stage.mjs`
-- Gate command: `npm run gate:retention:release`
-- Replay command: `npm run gate:retention:replay`
+- Gate command: `pnpm run gate:retention:release`
+- Replay command: `pnpm run gate:retention:replay`
 - Runtime budget fixture: `tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-release-gate` job)
 
@@ -33,9 +33,9 @@ The orchestrator always runs stages in this order:
 
 Optional local override:
 
-- `npm run gate:retention:release -- --no-fail-fast`
-- `npm run gate:retention:release -- --runtime-budgets=<path>`
-- `npm run gate:retention:release -- --rerun-attempts=<count>`
+- `pnpm run gate:retention:release -- --no-fail-fast`
+- `pnpm run gate:retention:release -- --runtime-budgets=<path>`
+- `pnpm run gate:retention:release -- --rerun-attempts=<count>`
 
 ## Artifacts
 
@@ -84,11 +84,11 @@ This gives a single CI-first triage view with:
 2. Use the `Stage Artifacts` table to open `stdout/stderr` logs and stage artifact paths for the first failed stage.
 3. If runtime budgets failed, open `retention-release-gate-runtime-timing.md` and inspect `over budget (ms)` rows.
 4. Open `retention-release-gate-artifact-index.json` for machine-readable stage mapping to timing and replay artifacts.
-5. Reproduce with `npm run gate:retention:replay` (or `--stage=<stage-id>`), apply fix, then rerun full gate.
+5. Reproduce with `pnpm run gate:retention:replay` (or `--stage=<stage-id>`), apply fix, then rerun full gate.
 
 ## Standard Release Workflow
 
-1. Run `npm run gate:retention:release`.
+1. Run `pnpm run gate:retention:release`.
 2. If pass, archive or attach `artifacts/retention-release-gate/*` to release notes.
 3. If fail, inspect:
    - stage failures in `retention-release-gate-summary.md`
@@ -96,8 +96,8 @@ This gives a single CI-first triage view with:
    - runtime budget breaches in `retention-release-gate-runtime-timing.md`
    - replay metadata in `replay-pack/retention-release-gate-replay-pack.md`
 4. Reproduce the first failed stage with:
-   - `npm run gate:retention:replay`
-   - or `npm run gate:retention:replay -- --stage=<stage-id>` for targeted reruns
+   - `pnpm run gate:retention:replay`
+   - or `pnpm run gate:retention:replay -- --stage=<stage-id>` for targeted reruns
 5. Apply fix in owning subsystem or update approved budgets, then re-run the full gate before ship approval.
 
 ## Fallback Procedure On Sub-Gate Failure
@@ -109,7 +109,7 @@ This gives a single CI-first triage view with:
    - `logs/<stage>.stdout.log`
    - `logs/<stage>.stderr.log`
 5. Re-run only that stage command from captured context:
-   - `npm run gate:retention:replay -- --stage=<stage-id>`
+   - `pnpm run gate:retention:replay -- --stage=<stage-id>`
 6. Apply fix (or approved threshold/baseline update), then re-run full orchestrator.
 7. If runtime budget breaches occur with passing stages, open:
    - `artifacts/retention-release-gate/retention-release-gate-runtime-timing.md`

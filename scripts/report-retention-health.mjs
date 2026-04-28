@@ -67,7 +67,8 @@ const CHECK_DEFINITIONS = [
     owner: 'Save migration decode/re-save safety',
     subsystem: 'tests/smoke/save-migration-matrix.spec.ts',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -84,7 +85,8 @@ const CHECK_DEFINITIONS = [
     owner: 'Mobile memory/frame drift thresholds',
     subsystem: 'tests/smoke/retention-memory-gate.spec.ts',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=mobile-chromium',
@@ -106,6 +108,8 @@ function printUsage() {
       '  --run-playwright             Include save-migration and memory Playwright gates.',
       '  --output-dir=<path>          Output directory for JSON/Markdown/log artifacts.',
       '  --thresholds=<path>          Threshold fixture JSON path override.',
+      '  --save-migration-report=<path> Reuse an existing save migration Playwright JSON report.',
+      '  --memory-gate-report=<path>  Reuse an existing memory gate Playwright JSON report.',
       '  --help                       Show this message.',
       '',
     ].join('\n'),
@@ -117,9 +121,15 @@ function parseArgs(argv) {
     runPlaywright: false,
     outputDir: DEFAULT_OUTPUT_DIR,
     thresholdsPath: DEFAULT_THRESHOLDS_PATH,
+    saveMigrationReportPath: null,
+    memoryGateReportPath: null,
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -147,6 +157,26 @@ function parseArgs(argv) {
       }
 
       options.thresholdsPath = path.resolve(process.cwd(), rawPath)
+      continue
+    }
+
+    if (arg.startsWith('--save-migration-report=')) {
+      const rawPath = arg.slice('--save-migration-report='.length)
+      if (rawPath.trim().length === 0) {
+        throw new Error('--save-migration-report requires a non-empty path.')
+      }
+
+      options.saveMigrationReportPath = path.resolve(process.cwd(), rawPath)
+      continue
+    }
+
+    if (arg.startsWith('--memory-gate-report=')) {
+      const rawPath = arg.slice('--memory-gate-report='.length)
+      if (rawPath.trim().length === 0) {
+        throw new Error('--memory-gate-report requires a non-empty path.')
+      }
+
+      options.memoryGateReportPath = path.resolve(process.cwd(), rawPath)
       continue
     }
 
@@ -690,6 +720,18 @@ function writeCheckLogs(outputDir, checkId, checkResult) {
   }
 }
 
+function resolvePlaywrightReportOverride(definition, options) {
+  if (definition.id === 'save_migration_matrix') {
+    return options.saveMigrationReportPath
+  }
+
+  if (definition.id === 'retention_memory_gate') {
+    return options.memoryGateReportPath
+  }
+
+  return null
+}
+
 function buildMetricSummary(check) {
   if (check.status === 'skipped') {
     return check.skipReason ?? 'skipped'
@@ -796,6 +838,36 @@ function resolveGitMetadata() {
 
 function executeCheck(definition, options, thresholds, outputDir) {
   const thresholdConfig = thresholds.checks[definition.thresholdKey] ?? {}
+  const reportOverridePath =
+    definition.kind === 'playwright' ? resolvePlaywrightReportOverride(definition, options) : null
+
+  if (definition.kind === 'playwright' && reportOverridePath) {
+    const evaluated = evaluateCheck(
+      definition,
+      { exitCode: 0, stdout: '', stderr: '', durationMs: 0 },
+      thresholdConfig,
+      reportOverridePath,
+    )
+    const thresholdViolations = [...evaluated.thresholdViolations]
+
+    return {
+      id: definition.id,
+      title: definition.title,
+      owner: definition.owner,
+      subsystem: definition.subsystem,
+      docs: definition.docs,
+      command: `${formatCommand(definition.command)} (reused report: ${toRelativeRepoPath(reportOverridePath)})`,
+      status: thresholdViolations.length === 0 ? 'pass' : 'fail',
+      skipReason: null,
+      durationMs: 0,
+      exitCode: 0,
+      metrics: evaluated.metrics,
+      thresholdViolations,
+      stdoutLogPath: null,
+      stderrLogPath: null,
+      reportPath: toRelativeRepoPath(reportOverridePath),
+    }
+  }
 
   if (definition.kind === 'playwright' && !options.runPlaywright) {
     return {
@@ -918,6 +990,12 @@ function run() {
     options: {
       runPlaywright: options.runPlaywright,
       outputDir: toRelativeRepoPath(options.outputDir),
+      saveMigrationReportPath: options.saveMigrationReportPath
+        ? toRelativeRepoPath(options.saveMigrationReportPath)
+        : null,
+      memoryGateReportPath: options.memoryGateReportPath
+        ? toRelativeRepoPath(options.memoryGateReportPath)
+        : null,
     },
     git: resolveGitMetadata(),
     summary: {

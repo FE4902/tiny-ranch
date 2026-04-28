@@ -9,7 +9,7 @@ catch runtime regressions before merge.
 
 - Runtime budget fixture: `tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json`
 - Orchestrator script: `scripts/run-retention-release-gate.mjs`
-- Gate command: `npm run gate:retention:release`
+- Gate command: `pnpm run gate:retention:release`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-release-gate` job)
 
 ## Runtime Budget Model
@@ -49,19 +49,19 @@ use this path:
 
 1. Open `retention-release-gate-runtime-timing.md` and identify the largest `over budget (ms)` row.
 2. Re-run only the offending stage command locally:
-   - `balance_check`: `npm run balance:check:return-objectives`
-   - `save_migration_smoke`: `npm run test:smoke:save-migration`
-   - `retention_soak`: `npm run test:soak:retention`
-   - `memory_gate`: `npm run test:soak:retention:memory`
-   - `retention_health_snapshot`: `npm run report:retention:health -- --run-playwright`
+   - `balance_check`: `pnpm run balance:check:return-objectives`
+   - `save_migration_smoke`: `pnpm run test:smoke:save-migration`
+   - `retention_soak`: `pnpm run test:soak:retention`
+   - `memory_gate`: `pnpm run test:soak:retention:memory`
+   - `retention_health_snapshot`: `pnpm run report:retention:health -- --run-playwright`
 3. Apply runtime fix first when regression is unintentional (test scope, fixture bloat, startup cost).
 4. Update budget fixture only when slower runtime is intentional and approved, then re-run full gate.
 
 ## Budget Tuning Workflow
 
-1. Run `npm run gate:retention:release`.
+1. Run `pnpm run gate:retention:release`.
 2. Review runtime timing artifacts and stderr breach lines.
 3. If intentional, edit `tests/fixtures/analytics/retention-release-gate-runtime-budgets.fixture.json`.
-4. Re-run `npm run gate:retention:release` and confirm no budget breaches remain.
+4. Re-run `pnpm run gate:retention:release` and confirm no budget breaches remain.
 5. Include rationale for fixture changes in issue/PR notes.
 

@@ -61,24 +61,24 @@ Contract fixture:
 Validation command:
 
 ```bash
-npm run test:telemetry:retention
+pnpm run test:telemetry:retention
 ```
 
 Cohort export utility command:
 
 ```bash
-npm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
+pnpm run analytics:retention:cohort -- --input tests/fixtures/analytics/retention-cohort-events.sample.json --format table
 ```
 
 Deterministic fixture test for export utility:
 
 ```bash
-npm run test:analytics:retention-cohort
+pnpm run test:analytics:retention-cohort
 ```
 
 CI expectation:
 
-- `.github/workflows/bundle-budget-gate.yml` runs `npm run test:analytics:retention` on every PR and `main` push.
+- `.github/workflows/bundle-budget-gate.yml` runs `pnpm run test:analytics:retention` on every PR and `main` push.
 - Retention contract/event-shape regressions must fail before smoke/performance rollout checks continue.
 
 ## Privacy Constraints
@@ -168,8 +168,8 @@ window.addEventListener('tiny-ranch:telemetry', (event) => console.log(event.det
 
 ## Rollout Checklist
 
-1. Validate `npm run build` passes with current telemetry schema changes.
-2. Run `npm run test:analytics:retention` and confirm retention contract/export checks pass.
+1. Validate `pnpm run build` passes with current telemetry schema changes.
+2. Run `pnpm run test:analytics:retention` and confirm retention contract/export checks pass.
 3. Verify local console sink still emits startup baseline events with no gameplay regressions.
 4. Deploy to staging with `VITE_TELEMETRY_SINK=posthog`.
 5. Confirm PostHog receives startup baseline events and no unknown-key warnings appear for expected payloads.
@@ -187,7 +187,7 @@ window.addEventListener('tiny-ranch:telemetry', (event) => console.log(event.det
 1. Switch sink back to console:
 
 ```bash
-VITE_TELEMETRY_SINK=console npm run build
+VITE_TELEMETRY_SINK=console pnpm run build
 ```
 
 2. Remove PostHog env vars from deployment secrets (`VITE_POSTHOG_API_KEY`, optional host/batch overrides).

@@ -2,7 +2,7 @@
 
 ## Scope
 
-This pass keeps `npm run gate:mvp:release` as the top-level release-candidate gate from
+This pass keeps `pnpm run gate:mvp:release` as the top-level release-candidate gate from
 [VER-121](/VER/issues/VER-121) and adds a small post-gate launch-shell validation layer for
 production metadata and boot readiness.
 
@@ -23,13 +23,13 @@ or engineering source layout.
 Run the unified MVP release-candidate gate first:
 
 ```bash
-npm run gate:mvp:release
+pnpm run gate:mvp:release
 ```
 
 Then run the launch-shell preview smoke:
 
 ```bash
-npm run test:smoke:launch-shell
+pnpm run test:smoke:launch-shell
 ```
 
 The launch-shell smoke uses the existing Playwright preview server configuration, so it builds the
@@ -40,7 +40,7 @@ Ranch scene with the smoke harness ready.
 Targeted build-only validation remains:
 
 ```bash
-npm run build
+pnpm run build
 ```
 
 ## Production Telemetry Config
@@ -71,6 +71,6 @@ To roll back the configured production telemetry sink:
    debug events only.
 2. Remove `VITE_POSTHOG_API_KEY` and any optional PostHog overrides from deployment secrets.
 3. Redeploy the same build target.
-4. Re-run `npm run test:smoke:launch-shell` and verify the game boots.
+4. Re-run `pnpm run test:smoke:launch-shell` and verify the game boots.
 
 For deeper analytics contract checks, keep using `docs/ver-42-startup-telemetry-baseline.md`.

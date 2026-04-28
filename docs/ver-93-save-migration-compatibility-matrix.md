@@ -14,7 +14,7 @@ fixture-driven migration matrix that validates:
 - Smoke gate: `tests/smoke/save-migration-matrix.spec.ts`
 - Fixture matrix: `tests/fixtures/save/save-migration-matrix.fixture.json`
 - Re-save trigger: `src/game/testing/smokeHarness.ts` (`debugSaveGameState`)
-- Local command: `npm run test:smoke:save-migration`
+- Local command: `pnpm run test:smoke:save-migration`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`save-migration-smoke` job)
 
 ## Fixture Matrix Coverage
@@ -37,16 +37,16 @@ When save schema or retention state contracts change:
    - `expectedRuntime`
    - `expectedResave`
    - `payload`
-3. Re-run `npm run test:smoke:save-migration`.
+3. Re-run `pnpm run test:smoke:save-migration`.
 4. If behavior changes intentionally, update fixture expectations in the same PR with a short
    rationale.
 
 ## Failure Triage
 
 1. Re-run the gate locally:
-   - `npm run test:smoke:save-migration`
+   - `pnpm run test:smoke:save-migration`
 2. Open the failed Playwright trace:
-   - `npx playwright show-trace test-results/**/trace.zip`
+   - `pnpm exec playwright show-trace test-results/**/trace.zip`
 3. Check whether failure is:
    - decode/runtime mismatch (`expectedRuntime` vs harness snapshot)
    - re-save mismatch (`expectedResave` vs persisted localStorage payload)

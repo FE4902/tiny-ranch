@@ -8,7 +8,7 @@ flows with periodic save/load boundaries and rollout-flag permutations.
 ## Source Of Truth
 
 - Soak runner: `scripts/check-retention-soak.mjs`
-- Soak command: `npm run test:soak:retention`
+- Soak command: `pnpm run test:soak:retention`
 - Baseline digest fixture: `tests/fixtures/save/retention-soak-baseline.fixture.json`
 - Runtime tuning: `src/game/config/returnObjectiveEconomyTuning.shared.js`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-soak` job)
@@ -52,7 +52,7 @@ Failure output includes case key, session index, and concise mismatch details fo
 ## Local Workflow
 
 1. Run soak validation:
-   - `npm run test:soak:retention`
+   - `pnpm run test:soak:retention`
 2. If a retention change intentionally alters deterministic output, regenerate baseline:
    - `node scripts/check-retention-soak.mjs --update-baseline`
 3. Re-run soak command to confirm clean pass after baseline update.

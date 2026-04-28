@@ -9,12 +9,12 @@ regressions can be triaged quickly and intentional tuning changes can be updated
 
 - Diff script: `scripts/diff-retention-gate-baseline.mjs`
 - Baseline fixture: `tests/fixtures/analytics/retention-gate-baseline.fixture.json`
-- NPM command: `npm run gate:retention:baseline-diff`
+- pnpm command: `pnpm run gate:retention:baseline-diff`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`retention-health-snapshot` job)
 
 ## Artifacts
 
-Running `npm run gate:retention:baseline-diff` writes:
+Running `pnpm run gate:retention:baseline-diff` writes:
 
 - JSON diff: `artifacts/retention-baseline-diff/retention-baseline-diff.json`
 - Markdown diff: `artifacts/retention-baseline-diff/retention-baseline-diff.md`
@@ -51,7 +51,7 @@ The diff gate fails when any metric breaches its configured threshold.
 ## Standard Workflow
 
 1. Run:
-   - `npm run gate:retention:baseline-diff`
+   - `pnpm run gate:retention:baseline-diff`
 2. Review diff artifacts:
    - `artifacts/retention-baseline-diff/retention-baseline-diff.md`
    - `artifacts/retention-baseline-diff/retention-baseline-diff.json`
@@ -64,9 +64,9 @@ Use this only when behavior drift is intentional and approved.
 
 1. Confirm change intent and expected retention impact.
 2. Refresh baseline values:
-   - `npm run gate:retention:baseline-diff -- --update-baseline`
+   - `pnpm run gate:retention:baseline-diff -- --update-baseline`
 3. Re-run baseline diff:
-   - `npm run gate:retention:baseline-diff`
+   - `pnpm run gate:retention:baseline-diff`
 4. Include rationale for threshold and/or baseline value changes in the issue update and PR notes.
 
 ## CI Behavior

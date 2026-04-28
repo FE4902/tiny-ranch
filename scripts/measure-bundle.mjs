@@ -100,7 +100,7 @@ const renderMarkdown = (rows) => {
     '',
     `- Measured at (UTC): ${measuredAt}`,
     `- Git revision: ${revision}`,
-    '- Command: `npm run bundle:measure`',
+    '- Command: `pnpm run bundle:measure`',
     '',
     '| Chunk | Raw KB | Minified KB | Gzip KB |',
     '| --- | ---: | ---: | ---: |'

@@ -7,7 +7,7 @@ still works end to end before broader polish or launch work depends on it.
 
 ## Source Of Truth
 
-- Gate command: `npm run gate:barn:mvp`
+- Gate command: `pnpm run gate:barn:mvp`
 - Orchestrator script: `scripts/run-barn-mvp-release-gate.mjs`
 - Summary artifacts: `artifacts/barn-mvp-release-gate/`
 - CI hook: `.github/workflows/bundle-budget-gate.yml` (`barn-mvp-release-gate` job)
@@ -33,7 +33,7 @@ Default mode is fail-fast. Later stages are marked `skipped` after the first fai
 points to the first broken Barn milestone. For a broader local triage pass, run:
 
 ```bash
-npm run gate:barn:mvp -- --no-fail-fast
+pnpm run gate:barn:mvp -- --no-fail-fast
 ```
 
 ## Artifacts
@@ -56,7 +56,7 @@ log paths, Playwright report paths, and the first captured failure message.
 2. Start with the first failed stage in `Stage Summary`.
 3. Open that stage's Playwright JSON report, then stdout/stderr logs.
 4. Re-run the exact stage command listed in `barn-mvp-release-gate-summary.json` if the full gate is too slow.
-5. Fix the owning Barn system, then re-run `npm run gate:barn:mvp`.
+5. Fix the owning Barn system, then re-run `pnpm run gate:barn:mvp`.
 
 ## Expected Release Use
 

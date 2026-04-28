@@ -23,7 +23,8 @@ const STAGE_DEFINITIONS = [
     id: 'fresh_handoff',
     title: 'Fresh Barn handoff',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -45,7 +46,8 @@ const STAGE_DEFINITIONS = [
     id: 'recipe_unlock',
     title: 'Mobile recipe unlock',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=mobile-chromium',
@@ -62,7 +64,8 @@ const STAGE_DEFINITIONS = [
     id: 'touch_processing_order',
     title: 'Mobile processing, claim, order ship',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=mobile-chromium',
@@ -87,7 +90,8 @@ const STAGE_DEFINITIONS = [
     id: 'market_order_claim_guard',
     title: 'Market order reload claim guard',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -123,6 +127,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -467,7 +475,7 @@ function buildSummary(options, stageResults) {
     issueIdentifier: 'VER-120',
     generatedAt,
     gate: {
-      command: 'npm run gate:barn:mvp',
+      command: 'pnpm run gate:barn:mvp',
       outputDir: toRelativeRepoPath(options.outputDir),
       failFast: options.failFast,
       git: resolveGitMetadata(),
@@ -578,7 +586,7 @@ function renderSummaryMarkdown(summary) {
   lines.push('1. Open the first failed stage row in this summary.')
   lines.push('2. Read the matching Playwright JSON report, then stdout/stderr logs.')
   lines.push('3. Re-run the exact stage command shown in the JSON summary, or re-run the full gate.')
-  lines.push('4. Fix the owning Barn subsystem and re-run `npm run gate:barn:mvp` before closing the lane.')
+  lines.push('4. Fix the owning Barn subsystem and re-run `pnpm run gate:barn:mvp` before closing the lane.')
   lines.push('')
   lines.push('## Artifact Paths', '')
   lines.push(`- Summary JSON: \`${summary.jsonArtifactPath}\``)

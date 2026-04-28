@@ -61,7 +61,8 @@ const STAGE_DEFINITIONS = [
     id: 'save_migration_smoke',
     title: 'Save migration matrix smoke',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=desktop-chromium',
@@ -92,7 +93,8 @@ const STAGE_DEFINITIONS = [
     id: 'memory_gate',
     title: 'Mobile retention memory gate',
     command: [
-      'npx',
+      'pnpm',
+      'exec',
       'playwright',
       'test',
       '--project=mobile-chromium',
@@ -145,6 +147,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)
@@ -534,7 +540,11 @@ function buildStageResult(definition, options, replayContextEnv) {
 
   if (definition.kind === 'health_snapshot') {
     const healthOutputDir = path.join(options.outputDir, 'retention-health')
+    const saveMigrationReportPath = path.join(reportsDir, 'save_migration_smoke.playwright.json')
+    const memoryGateReportPath = path.join(reportsDir, 'memory_gate.playwright.json')
     command.push(`--output-dir=${healthOutputDir}`)
+    command.push(`--save-migration-report=${saveMigrationReportPath}`)
+    command.push(`--memory-gate-report=${memoryGateReportPath}`)
     healthSummaryPath = path.join(healthOutputDir, 'retention-health-summary.json')
     artifacts.push(toRelativeRepoPath(path.join(healthOutputDir, 'retention-health-summary.json')))
     artifacts.push(toRelativeRepoPath(path.join(healthOutputDir, 'retention-health-summary.md')))
@@ -697,7 +707,7 @@ function buildFailureList(stageResults) {
       exitCode: stage.exitCode,
       failureClassification: stage.failureClassification,
       classificationLabel: toFailureClassificationLabel(stage.failureClassification),
-      replayCommand: `npm run gate:retention:replay -- --stage=${stage.id}`,
+      replayCommand: `pnpm run gate:retention:replay -- --stage=${stage.id}`,
       rerunDiagnostics: stage.rerunDiagnostics,
       stdoutLogPath: stage.stdoutLogPath,
       stderrLogPath: stage.stderrLogPath,
@@ -927,7 +937,7 @@ function buildReplayPack(
         stage.failureClassification === null ? null : toFailureClassificationLabel(stage.failureClassification),
       rerunEvidence: formatRerunEvidence(stage.rerunDiagnostics),
       command: stage.command.display,
-      replayCommand: `npm run gate:retention:replay -- --stage=${stage.stageId}`,
+      replayCommand: `pnpm run gate:retention:replay -- --stage=${stage.stageId}`,
       stdoutLogPath: stage.artifacts.stdoutLogPath,
       stderrLogPath: stage.artifacts.stderrLogPath,
     }))
@@ -938,8 +948,8 @@ function buildReplayPack(
     generatedAt,
     replayDefaults: {
       packPath: null,
-      defaultReplayCommand: 'npm run gate:retention:replay -- --stage=<stage-id>',
-      defaultFailedReplayCommand: 'npm run gate:retention:replay',
+      defaultReplayCommand: 'pnpm run gate:retention:replay -- --stage=<stage-id>',
+      defaultFailedReplayCommand: 'pnpm run gate:retention:replay',
       rerunAttempts: options.rerunAttempts,
     },
     gateRun: {
@@ -989,8 +999,8 @@ function renderReplayPackMarkdown(replayPack, replayPackJsonPath, replayPackMark
     '',
     '## Replay Commands',
     '',
-    '- Replay first failed stage: `npm run gate:retention:replay`',
-    '- Replay specific stage: `npm run gate:retention:replay -- --stage=<stage-id>`',
+    '- Replay first failed stage: `pnpm run gate:retention:replay`',
+    '- Replay specific stage: `pnpm run gate:retention:replay -- --stage=<stage-id>`',
     '',
     '## Failed Stages',
     '',
@@ -1183,8 +1193,8 @@ function buildArtifactIndex(summary, runtimeTiming, stageResults) {
         replay: {
           replayPackJsonPath: summary.replayPack.jsonArtifactPath,
           replayPackMarkdownPath: summary.replayPack.markdownArtifactPath,
-          replayCommand: `npm run gate:retention:replay -- --stage=${stage.id}`,
-          defaultFailedReplayCommand: 'npm run gate:retention:replay',
+          replayCommand: `pnpm run gate:retention:replay -- --stage=${stage.id}`,
+          defaultFailedReplayCommand: 'pnpm run gate:retention:replay',
         },
         artifacts: {
           stdoutLogPath: stage.stdoutLogPath,
@@ -1273,7 +1283,7 @@ function renderMarkdownSummary(summary) {
   lines.push('| --- | --- | --- | --- | --- |')
   for (const stage of summary.stages) {
     lines.push(
-      `| ${escapeMarkdownCell(stage.id)} | ${stage.stdoutLogPath ? `\`${escapeMarkdownCell(stage.stdoutLogPath)}\`` : 'n/a'} | ${stage.stderrLogPath ? `\`${escapeMarkdownCell(stage.stderrLogPath)}\`` : 'n/a'} | ${formatStageArtifactList(stage)} | \`npm run gate:retention:replay -- --stage=${escapeMarkdownCell(stage.id)}\` |`,
+      `| ${escapeMarkdownCell(stage.id)} | ${stage.stdoutLogPath ? `\`${escapeMarkdownCell(stage.stdoutLogPath)}\`` : 'n/a'} | ${stage.stderrLogPath ? `\`${escapeMarkdownCell(stage.stderrLogPath)}\`` : 'n/a'} | ${formatStageArtifactList(stage)} | \`pnpm run gate:retention:replay -- --stage=${escapeMarkdownCell(stage.id)}\` |`,
     )
   }
   lines.push('')
@@ -1282,8 +1292,8 @@ function renderMarkdownSummary(summary) {
   lines.push(`- Failed stages captured: ${summary.replayPack.failedStageCount}`)
   lines.push(`- Replay JSON: \`${summary.replayPack.jsonArtifactPath}\``)
   lines.push(`- Replay Markdown: \`${summary.replayPack.markdownArtifactPath}\``)
-  lines.push('- Replay first failed stage: `npm run gate:retention:replay`')
-  lines.push('- Replay specific stage: `npm run gate:retention:replay -- --stage=<stage-id>`')
+  lines.push('- Replay first failed stage: `pnpm run gate:retention:replay`')
+  lines.push('- Replay specific stage: `pnpm run gate:retention:replay -- --stage=<stage-id>`')
   lines.push('')
 
   lines.push('## Artifact Paths', '')
