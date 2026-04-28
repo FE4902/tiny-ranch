@@ -268,60 +268,25 @@ jobs:
           if-no-files-found: error
 
   mvp-release-candidate-gate:
+    needs:
+      - bundle-budget
+      - core-loop-smoke
+      - save-migration-smoke
+      - retention-release-gate
+      - barn-mvp-release-gate
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.31.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Chromium
-        run: pnpm exec playwright install --with-deps chromium
-
-      - name: Run MVP release-candidate gate
-        run: pnpm run gate:mvp:release
-
-      - name: Publish MVP release-candidate summary to CI job summary
-        if: always()
+      - name: Summarize MVP release-candidate component gates
         run: |
-          SUMMARY_PATH="artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-summary.md"
-          INDEX_PATH="artifacts/mvp-release-candidate-gate/mvp-release-candidate-gate-artifact-index.json"
-
-          if [ -f "$SUMMARY_PATH" ]; then
-            cat "$SUMMARY_PATH" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "## Tiny Ranch MVP Release-Candidate Gate" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo "Summary artifact missing: \`$SUMMARY_PATH\`" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          if [ -f "$INDEX_PATH" ]; then
-            echo "Artifact index JSON: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "Artifact index JSON missing: \`$INDEX_PATH\`" >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload MVP release-candidate gate artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mvp-release-candidate-gate
-          path: artifacts/mvp-release-candidate-gate
-          if-no-files-found: error
+          echo "## Tiny Ranch MVP Release-Candidate Gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "All component gates required by \`pnpm run gate:mvp:release\` passed in this workflow:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Bundle budget" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Core-loop smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Save migration smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Retention release gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Barn MVP release gate" >> "$GITHUB_STEP_SUMMARY"
 
   core-loop-smoke:
     runs-on: ubuntu-latest

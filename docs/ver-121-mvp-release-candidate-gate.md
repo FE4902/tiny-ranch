@@ -11,7 +11,7 @@ current build.
 - Gate command: `pnpm run gate:mvp:release`
 - Orchestrator script: `scripts/run-mvp-release-candidate-gate.mjs`
 - Summary artifacts: `artifacts/mvp-release-candidate-gate/`
-- CI hook: `.github/workflows/bundle-budget-gate.yml` (`mvp-release-candidate-gate` job)
+- CI hook: `.github/workflows/bundle-budget-gate.yml` (`mvp-release-candidate-gate` aggregate job after the component gate jobs pass)
 
 ## Stage Order
 
