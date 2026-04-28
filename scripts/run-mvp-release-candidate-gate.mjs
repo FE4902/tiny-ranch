@@ -48,6 +48,7 @@ const STAGE_DEFINITIONS = [
       'test',
       '--project=desktop-chromium',
       'tests/smoke/core-loop.spec.ts',
+      '--workers=1',
       '--reporter=json',
     ],
     coverage: [
@@ -74,6 +75,7 @@ const STAGE_DEFINITIONS = [
       '--project=mobile-chromium',
       'tests/smoke/core-loop.spec.ts',
       'tests/smoke/touch-path.spec.ts',
+      '--workers=1',
       '--reporter=json',
     ],
     coverage: [
@@ -99,6 +101,7 @@ const STAGE_DEFINITIONS = [
       'test',
       '--project=desktop-chromium',
       'tests/smoke/save-migration-matrix.spec.ts',
+      '--workers=1',
       '--reporter=json',
     ],
     coverage: ['legacy_save_fixtures', 'retention_defaults', 'resave_compatibility'],

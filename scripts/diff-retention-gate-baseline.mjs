@@ -111,6 +111,10 @@ function parseArgs(argv) {
   }
 
   for (const arg of argv) {
+    if (arg === '--') {
+      continue
+    }
+
     if (arg === '--help' || arg === '-h') {
       printUsage()
       process.exit(0)

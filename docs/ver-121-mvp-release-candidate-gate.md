@@ -24,13 +24,13 @@ The gate runs existing project gates in this deterministic order:
    - Command: `pnpm run bundle:measure`
    - Owner docs: `docs/ver-38-bundle-prototypes.md`, `docs/ver-40-core-default-rollout.md`
 3. Desktop core smoke
-   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/core-loop.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/core-loop.spec.ts --workers=1 --reporter=json`
    - Owner docs: `README.md`, `docs/ver-42-startup-telemetry-baseline.md`
 4. Mobile core and touch smoke
-   - Command: `pnpm exec playwright test --project=mobile-chromium tests/smoke/core-loop.spec.ts tests/smoke/touch-path.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=mobile-chromium tests/smoke/core-loop.spec.ts tests/smoke/touch-path.spec.ts --workers=1 --reporter=json`
    - Owner docs: `README.md`, `docs/ver-42-startup-telemetry-baseline.md`
 5. Save migration smoke
-   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts --reporter=json`
+   - Command: `pnpm exec playwright test --project=desktop-chromium tests/smoke/save-migration-matrix.spec.ts --workers=1 --reporter=json`
    - Owner docs: `docs/ver-93-save-migration-compatibility-matrix.md`
 6. Retention release gate
    - Command: `pnpm run gate:retention:release`
