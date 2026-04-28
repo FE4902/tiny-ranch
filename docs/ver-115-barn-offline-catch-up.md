@@ -31,4 +31,4 @@ Barn jobs now participate in the existing boot-time offline hydration pass.
 ## Validation
 
 - `pnpm run build`
-- `pnpm run test:smoke -- tests/smoke/barn-processing.spec.ts`
+- `pnpm run test:smoke tests/smoke/barn-processing.spec.ts`

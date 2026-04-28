@@ -112,9 +112,9 @@ in `docs/ver-123-mvp-launch-handoff.md`.
 For failure triage:
 
 1. Re-run only the touch suite on mobile:
-   `pnpm run test:smoke -- --project=mobile-chromium tests/smoke/touch-path.spec.ts`.
+   `pnpm run test:smoke --project=mobile-chromium tests/smoke/touch-path.spec.ts`.
 2. Re-run a single project with fresh server startup when needed:
-   `CI=1 pnpm run test:smoke -- --project=mobile-chromium`.
+   `CI=1 pnpm run test:smoke --project=mobile-chromium`.
 3. Open the latest trace:
    `pnpm exec playwright show-trace test-results/**/trace.zip`.
 4. Capture an interactive repro and inspect smoke state in DevTools:
@@ -189,9 +189,9 @@ enforces per-project budgets defined in `tests/smoke/frameHealthBudgets.ts`.
 If CI fails on frame-health:
 
 1. Re-run only the gated core-loop smoke for the failing project:
-   `pnpm run test:smoke -- --project=mobile-chromium tests/smoke/core-loop.spec.ts`
+   `pnpm run test:smoke --project=mobile-chromium tests/smoke/core-loop.spec.ts`
    or
-   `pnpm run test:smoke -- --project=desktop-chromium tests/smoke/core-loop.spec.ts`
+   `pnpm run test:smoke --project=desktop-chromium tests/smoke/core-loop.spec.ts`
 2. Read the test log line prefixed with `[frame-health][<project>]` for p95, long-frame count,
    long-frame threshold, and max-frame duration.
 3. Open Playwright artifacts for the failed run:

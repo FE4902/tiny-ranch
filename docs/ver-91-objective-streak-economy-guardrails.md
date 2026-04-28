@@ -115,7 +115,7 @@ Smoke-only query overrides (for local validation) are available when `smokeTest=
    - `pnpm run test:telemetry:retention`
 7. Re-run smoke regression before release:
    - `pnpm run test:smoke`
-   - `pnpm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
+   - `pnpm run test:smoke --grep "barn claim progress completes the Barn return objective"`
 
 ## Rollout / Rollback Steps
 
@@ -123,9 +123,9 @@ Smoke-only query overrides (for local validation) are available when `smokeTest=
 2. Validate analytics contracts:
    - `pnpm run test:analytics:retention`
 3. Validate smoke on both paths:
-   - default flags on: `pnpm run test:smoke -- --grep "return objective streak increments"`
-   - Barn milestone path: `pnpm run test:smoke -- --grep "barn claim progress completes the Barn return objective"`
-   - kill switch path: `pnpm run test:smoke -- --grep "retention kill switch disables objective boot assignment and claim flow safely"`
+   - default flags on: `pnpm run test:smoke --grep "return objective streak increments"`
+   - Barn milestone path: `pnpm run test:smoke --grep "barn claim progress completes the Barn return objective"`
+   - kill switch path: `pnpm run test:smoke --grep "retention kill switch disables objective boot assignment and claim flow safely"`
 4. Ship once both analytics + smoke checks pass.
 5. Rollback (if needed): set `retentionKillSwitchEnabled` to `true` in the same file, re-run checks, and redeploy.
 

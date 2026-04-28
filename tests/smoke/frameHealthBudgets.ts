@@ -16,7 +16,7 @@ const DEFAULT_BUDGET: FrameHealthBudget = {
 
 const FRAME_HEALTH_BUDGET_BY_PROJECT: Record<string, FrameHealthBudget> = {
   'desktop-chromium': {
-    sampleWindowMs: 3_000,
+    sampleWindowMs: 5_000,
     minimumSampleCount: 120,
     longFrameThresholdMs: 45,
     maxP95FrameDurationMs: 30,

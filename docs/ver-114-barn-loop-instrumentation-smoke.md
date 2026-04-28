@@ -113,5 +113,5 @@ Run the Barn baseline checks with:
 
 ```bash
 pnpm run test:telemetry:retention
-pnpm run test:smoke -- --project=mobile-chromium tests/smoke/barn-ui.spec.ts
+pnpm run test:smoke --project=mobile-chromium tests/smoke/barn-ui.spec.ts
 ```
