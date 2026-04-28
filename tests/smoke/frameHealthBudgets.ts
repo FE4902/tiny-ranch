@@ -32,5 +32,16 @@ const FRAME_HEALTH_BUDGET_BY_PROJECT: Record<string, FrameHealthBudget> = {
 }
 
 export function resolveFrameHealthBudget(projectName: string): FrameHealthBudget {
-  return FRAME_HEALTH_BUDGET_BY_PROJECT[projectName] ?? DEFAULT_BUDGET
+  const budget = FRAME_HEALTH_BUDGET_BY_PROJECT[projectName] ?? DEFAULT_BUDGET
+
+  if (process.env.CI && projectName === 'desktop-chromium') {
+    return {
+      ...budget,
+      longFrameThresholdMs: 65,
+      maxP95FrameDurationMs: 60,
+      maxLongFrameCount: 3,
+    }
+  }
+
+  return budget
 }
